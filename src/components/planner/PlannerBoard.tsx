@@ -71,7 +71,8 @@ export default function PlannerBoard({
   const [modalEmployeeId, setModalEmployeeId] = useState('');
   const [modalOverCapacity, setModalOverCapacity] = useState(false);
 
-  const [isQuickAddOpen, setIsQuickAddOpen] = useState(false);
+  // Quick Add – null = zamknięte; obiekt = otwarte z prefillem godziny i pracownika
+  const [quickAddPrefill, setQuickAddPrefill] = useState<{ time: string; employeeId: string } | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [finishConfirmId, setFinishConfirmId] = useState<string | null>(null);
   const [showOverdueTodayPanel, setShowOverdueTodayPanel] = useState(true); // domyślnie rozwinięty
@@ -84,6 +85,10 @@ export default function PlannerBoard({
   const longPressTimer = useRef<any>(null);
   const dragRef = useRef<{ order: any; pointerId: number; startX: number; startY: number; active: boolean } | null>(null);
   const dropTargetRef = useRef<{ time: string; employeeId: string } | null>(null);
+
+  // Long-press on empty slot cell → open Quick Add with prefilled time/employee
+  const cellLongPressTimer = useRef<any>(null);
+  const cellPressRef = useRef<{ pointerId: number; time: string; employeeId: string; startX: number; startY: number } | null>(null);
 
   // Container ref for auto-scrolling
   const timelineScrollRef = useRef<HTMLDivElement>(null);
@@ -377,6 +382,48 @@ export default function PlannerBoard({
     fetchDayOrders();
   };
 
+  // ---- Long-press on empty slot cell → open Quick Add (prefilled) ----
+  const clearCellLongPress = () => {
+    if (cellLongPressTimer.current) {
+      clearTimeout(cellLongPressTimer.current);
+      cellLongPressTimer.current = null;
+    }
+  };
+
+  const handleCellPointerDown = (e: React.PointerEvent, slotTime: string, empId: string) => {
+    // Nie uruchamiaj, gdy naciśnięto kartę zlecenia lub przycisk
+    if ((e.target as HTMLElement).closest('[data-order-card], button')) return;
+
+    cellPressRef.current = { pointerId: e.pointerId, time: slotTime, employeeId: empId, startX: e.clientX, startY: e.clientY };
+    clearCellLongPress();
+    cellLongPressTimer.current = setTimeout(() => {
+      const ref = cellPressRef.current;
+      if (!ref || ref.pointerId !== e.pointerId) return;
+      setQuickAddPrefill({ time: ref.time, employeeId: ref.employeeId });
+      cellPressRef.current = null;
+    }, 450);
+  };
+
+  const handleCellPointerMove = (e: React.PointerEvent) => {
+    const ref = cellPressRef.current;
+    if (!ref || ref.pointerId !== e.pointerId) return;
+
+    // Jeśli palec się przesuwa (scroll), anuluj long-press
+    const dx = e.clientX - ref.startX;
+    const dy = e.clientY - ref.startY;
+    if (Math.abs(dx) > 10 || Math.abs(dy) > 10) {
+      clearCellLongPress();
+      cellPressRef.current = null;
+    }
+  };
+
+  const handleCellPointerUp = (e: React.PointerEvent) => {
+    const ref = cellPressRef.current;
+    if (!ref || ref.pointerId !== e.pointerId) return;
+    clearCellLongPress();
+    cellPressRef.current = null;
+  };
+
   // Reschedule a past unfinished order to today
   const handleMoveToToday = async (ord: any) => {
     const roundedTime = getRoundedCurrentTime(30);
@@ -541,7 +588,10 @@ export default function PlannerBoard({
           </div>
 
           <button
-            onClick={() => setIsQuickAddOpen(true)}
+            onClick={() => setQuickAddPrefill({
+              time: getRoundedCurrentTime(30),
+              employeeId: activeEmployees[0]?.id || employees[0]?.id || '',
+            })}
             className="px-3.5 py-2 sm:py-2.5 rounded-xl bg-sky-500 hover:bg-sky-400 text-white font-extrabold text-xs shadow-lg shadow-sky-500/20 transition-all flex items-center gap-1.5"
           >
             <Plus className="w-4 h-4" />
@@ -748,7 +798,11 @@ export default function PlannerBoard({
         ref={timelineScrollRef}
         className="flex-1 bg-slate-900 border border-slate-800 rounded-3xl p-3 sm:p-5 shadow-2xl overflow-x-auto max-h-[75vh] overflow-y-auto relative"
       >
-        <div className="flex items-center justify-end mb-2 text-[10px] text-slate-500">
+        <div className="flex items-center justify-end mb-2 text-[10px] text-slate-500 gap-4">
+          <span className="flex items-center gap-1.5">
+            <Plus className="w-3 h-3 text-emerald-400" />
+            Przytrzymaj puste pole lub kliknij 2x, aby szybko dodać auto
+          </span>
           <span className="flex items-center gap-1.5">
             <Move className="w-3 h-3 text-sky-400" />
             Przytrzymaj auto i przeciągnij, aby zmienić godzinę lub pracownika
@@ -822,7 +876,7 @@ export default function PlannerBoard({
                   <div
                     key={slot}
                     id={`slot-row-${slot}`}
-                    className={`grid gap-2 sm:gap-3 items-stretch min-h-[58px] rounded-2xl transition-all ${
+                    className={`group grid gap-2 sm:gap-3 items-stretch min-h-[58px] rounded-2xl transition-all ${
                       isCurrentSlot
                         ? 'ring-2 ring-sky-500 bg-sky-950/20 p-1'
                         : isPastSlot
@@ -863,6 +917,14 @@ export default function PlannerBoard({
                           data-drop-cell
                           data-drop-time={slot}
                           data-drop-emp={emp.id}
+                          onPointerDown={(e) => handleCellPointerDown(e, slot, emp.id)}
+                          onPointerMove={handleCellPointerMove}
+                          onPointerUp={handleCellPointerUp}
+                          onPointerCancel={handleCellPointerUp}
+                          onDoubleClick={(e) => {
+                            if ((e.target as HTMLElement).closest('[data-order-card], button')) return;
+                            setQuickAddPrefill({ time: slot, employeeId: emp.id });
+                          }}
                           className={`border rounded-2xl p-1.5 flex flex-col gap-1.5 relative transition-all ${
                             dropTarget && dropTarget.time === slot && dropTarget.employeeId === emp.id
                               ? 'bg-emerald-500/20 border-emerald-400 ring-2 ring-emerald-400/60'
@@ -882,6 +944,7 @@ export default function PlannerBoard({
                             return (
                               <div
                                 key={ord.id}
+                                data-order-card
                                 onPointerDown={(e) => handleCardPointerDown(e, ord)}
                                 onPointerMove={handleCardPointerMove}
                                 onPointerUp={handleCardPointerUp}
@@ -1015,6 +1078,11 @@ export default function PlannerBoard({
                               </div>
                             );
                           })}
+                          {slotOrders.length === 0 && (
+                            <div className="flex-1 flex items-center justify-center min-h-[40px] text-slate-700 hover:text-sky-400 transition-colors pointer-events-none">
+                              <Plus className="w-4 h-4 opacity-40 group-hover:opacity-100" />
+                            </div>
+                          )}
                         </div>
                       );
                     })}
@@ -1422,7 +1490,7 @@ export default function PlannerBoard({
       )}
 
       {/* Quick Add Order Modal (Manual Override from Wash Bay) */}
-      {isQuickAddOpen && (
+      {quickAddPrefill && (
         <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-700 rounded-3xl p-6 w-full max-w-lg shadow-2xl animate-in fade-in zoom-in duration-150">
             <div className="flex items-center justify-between mb-4">
@@ -1431,7 +1499,7 @@ export default function PlannerBoard({
                 Szybkie Dodanie Auta na Myjni
               </h3>
               <button
-                onClick={() => setIsQuickAddOpen(false)}
+                onClick={() => setQuickAddPrefill(null)}
                 className="p-1 rounded-lg text-slate-400 hover:text-white"
               >
                 <X className="w-5 h-5" />
@@ -1466,7 +1534,7 @@ export default function PlannerBoard({
                   assignedEmployeeId: empId,
                 });
 
-                setIsQuickAddOpen(false);
+                setQuickAddPrefill(null);
                 fetchDayOrders();
               }}
               className="space-y-4"
@@ -1532,7 +1600,8 @@ export default function PlannerBoard({
                   </label>
                   <select
                     name="qa-emp"
-                    defaultValue={activeEmployees[0]?.id || employees[0]?.id}
+                    key={`emp-${quickAddPrefill.employeeId}`}
+                    defaultValue={quickAddPrefill.employeeId || activeEmployees[0]?.id || employees[0]?.id}
                     className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white text-xs font-bold"
                   >
                     {(activeEmployees.length > 0 ? activeEmployees : employees).map(e => (
@@ -1548,7 +1617,8 @@ export default function PlannerBoard({
                   <input
                     name="qa-time"
                     type="time"
-                    defaultValue={getRoundedCurrentTime(30)}
+                    key={`time-${quickAddPrefill.time}`}
+                    defaultValue={quickAddPrefill.time || getRoundedCurrentTime(30)}
                     className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white font-mono font-bold"
                   />
                 </div>
@@ -1557,7 +1627,7 @@ export default function PlannerBoard({
               <div className="flex items-center gap-3 pt-3">
                 <button
                   type="button"
-                  onClick={() => setIsQuickAddOpen(false)}
+                  onClick={() => setQuickAddPrefill(null)}
                   className="flex-1 py-3 rounded-xl bg-slate-800 text-slate-300 font-bold text-xs"
                 >
                   Anuluj
