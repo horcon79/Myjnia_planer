@@ -1,0 +1,34 @@
+# Zależności i build
+node_modules
+.next
+out
+build
+dist
+coverage
+
+# Środowisko i dane
+.env
+.env.*
+!.env.example
+prisma/*.db
+prisma/*.db-journal
+*.db
+*.db-journal
+
+# Git / system / edytory
+.git
+.gitignore
+.DS_Store
+Thumbs.db
+.idea
+.vscode
+*.log
+npm-debug.log*
+
+# Dokumentacja i pliki pomocnicze
+README.md
+CLAUDE.md
+AGENTS.md
+docker-compose*.yml
+Dockerfile
+.dockerignore

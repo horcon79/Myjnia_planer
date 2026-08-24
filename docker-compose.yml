@@ -1,0 +1,29 @@
+services:
+  myjnia-planer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: myjnia-planer:latest
+    container_name: myjnia-planer
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - TZ=Europe/Warsaw
+      # Baza SQLite przechowywana na trwałym wolumenie
+      - DATABASE_URL=file:/data/myjnia.db
+    volumes:
+      # Nazwany wolumen - dane przetrwają rebuild/redeploy kontenera
+      - myjnia_data:/data
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:3000"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  myjnia_data:

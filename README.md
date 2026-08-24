@@ -1,4 +1,4 @@
-# Myjnia Planer
+# Dealer Myjnia Planer
 
 Wewnętrzny system do zarządzania i planowania prac myjni samochodowej w firmie (dealer samochodowy, firma transportowa, serwis lub flota). Aplikacja przeznaczona do użytku na tablecie przy myjni oraz na komputerach działów zamawiających.
 
@@ -35,8 +35,9 @@ System pozwala działom zgłaszać mycia, pracownikom myjni planować je w grafi
 
 ## Wymagania
 
-- Node.js 20+
-- npm
+- Node.js 20+ (rozwój lokalny)
+- npm (rozwój lokalny)
+- Docker 24+ z Docker Compose v2 (wdrożenie produkcyjne)
 
 ## Instalacja i uruchomienie
 
@@ -56,6 +57,60 @@ npm run dev
 ```
 
 Otwórz <http://localhost:3000>. Po stronie głównej wybierz profil i zaloguj się kodem PIN.
+
+## Wdrożenie z Docker (produkcja / testy)
+
+Projekt zawiera gotowy `Dockerfile` oraz `docker-compose.yml`. Baza SQLite jest trzymana na nazwanym wolumenie, więc dane przetrwają ponowny build i restart kontenera.
+
+### Pierwsze uruchomienie
+
+```bash
+# Zbuduj obraz i uruchom kontener w tle
+docker compose up -d --build
+
+# Podgląd logów (tworzenie schematu, seed, start serwera)
+docker compose logs -f
+```
+
+Aplikacja będzie dostępna pod <http://localhost:3000>.
+
+Przy pierwszym starcie kontener automatycznie:
+
+1. wykonuje `prisma db push` (tworzy/aktualizuje schemat bazy),
+2. na nowej bazie uruchamia seed z danymi startowymi (loginy jak w tabeli poniżej).
+
+### Aktualizacja do nowej wersji
+
+```bash
+# Zatrzymaj, zbuduj nową wersję, uruchom ponownie
+docker compose up -d --build
+# lub bez przebudowy, jeśli obraz już zbudowano
+docker compose restart
+```
+
+Dane (baza `myjnia.db`) pozostają na wolumenie `myjnia_data` — nie ma ryzyka utraty przy aktualizacji.
+
+### Użyteczne polecenia
+
+```bash
+docker compose ps          # status kontenera
+docker compose logs -f     # podgląd logów na żywo
+docker compose down        # zatrzymanie (dane na wolumenie zostają)
+docker compose down -v     # zatrzymanie i USUNIĘCIE wolumenu z danymi (ostrożnie!)
+docker compose exec myjnia-planer npx prisma studio   # podgląd bazy
+```
+
+### Konfiguracja kontenera
+
+Zmienne środowiskowe w `docker-compose.yml`:
+
+| Zmienna | Domyślnie | Opis |
+| ------- | --------- | ---- |
+| `PORT` | `3000` | Port wewnątrz kontenera |
+| `DATABASE_URL` | `file:/data/myjnia.db` | Lokalizacja bazy SQLite (na wolumenie `/data`) |
+| `TZ` | `Europe/Warsaw` | Strefa czasowa |
+
+Port na hoście można zmienić edytując mapowanie `"3000:3000"` (np. `"8080:3000"`), a dane — zmieniając nazwę wolumenu `myjnia_data`.
 
 ## Dane startowe (seed)
 
@@ -102,4 +157,4 @@ Ustawienia systemowe są przechowywane w bazie (model `AppSetting`) i edytowalne
 
 ## Licencja
 
-Projekt wewnętrzny — nie przeznaczony do dystrybucji.
+Projekt wewnętrzny — nie przeznaczony do dystrybucji. Potrzebujesz licencji napisz <horcon.koszalin@gmail.com>
