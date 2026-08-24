@@ -14,7 +14,8 @@ import {
   ArrowRight,
   Filter,
   Check,
-  AlertTriangle
+  AlertTriangle,
+  FileText
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { pl } from 'date-fns/locale';
@@ -170,6 +171,13 @@ export default function SalonDashboard({
                     {ord.category?.name}
                   </p>
 
+                  {ord.notes && (
+                    <div className="mb-2 px-2.5 py-1.5 rounded-lg bg-sky-950/60 border border-sky-500/30 text-[11px] text-sky-200 flex items-start gap-1.5">
+                      <FileText className="w-3.5 h-3.5 text-sky-400 flex-shrink-0 mt-0.5" />
+                      <span className="leading-snug">{ord.notes}</span>
+                    </div>
+                  )}
+
                   <div className="flex items-center justify-between text-[11px] text-slate-400 pt-2 border-t border-emerald-500/20">
                     <span>Umył: <strong className="text-white">{ord.assignedEmployee?.name || 'Myjnia'}</strong></span>
                     <span className="font-mono text-emerald-400 font-bold">
@@ -237,6 +245,13 @@ export default function SalonDashboard({
                     {ord.category?.name} ({ord.durationMin} min)
                   </p>
 
+                  {ord.notes && (
+                    <div className="mb-2 px-2.5 py-1.5 rounded-lg bg-sky-950/60 border border-sky-500/30 text-[11px] text-sky-200 flex items-start gap-1.5">
+                      <FileText className="w-3.5 h-3.5 text-sky-400 flex-shrink-0 mt-0.5" />
+                      <span className="leading-snug">{ord.notes}</span>
+                    </div>
+                  )}
+
                   <div className="flex items-center justify-between text-[11px] text-slate-400 pt-2 border-t border-amber-500/20">
                     <span>Myje: <strong className="text-white">{ord.assignedEmployee?.name || 'Pracownik'}</strong></span>
                     <span className="font-mono text-amber-300 font-bold">
@@ -303,6 +318,13 @@ export default function SalonDashboard({
                   <p className="text-[11px] text-slate-400 mb-2">
                     {ord.category?.name}
                   </p>
+
+                  {ord.notes && (
+                    <div className="mb-2 px-2.5 py-1.5 rounded-lg bg-sky-950/60 border border-sky-500/30 text-[11px] text-sky-200 flex items-start gap-1.5">
+                      <FileText className="w-3.5 h-3.5 text-sky-400 flex-shrink-0 mt-0.5" />
+                      <span className="leading-snug">{ord.notes}</span>
+                    </div>
+                  )}
 
                   <div className="flex items-center justify-between text-[11px] text-slate-500 pt-2 border-t border-slate-900">
                     <span>Zgłosił: {ord.contactPerson || ord.department?.name}</span>

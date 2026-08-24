@@ -232,6 +232,61 @@ export async function quickFinishOrder(orderId: string) {
   return updateOrderStatus(orderId, 'READY');
 }
 
+export async function addOrderNote(orderId: string, note: string) {
+  try {
+    const trimmed = note.trim();
+    const updated = await prisma.washOrder.update({
+      where: { id: orderId },
+      data: { notes: trimmed || null },
+      include: {
+        department: true,
+        category: true,
+        assignedEmployee: true,
+      },
+    });
+
+    revalidatePath('/planner');
+    revalidatePath('/order');
+    revalidatePath('/summary');
+
+    return { success: true, order: updated };
+  } catch (error) {
+    console.error('addOrderNote error:', error);
+    return { success: false, error: 'Nie udało się zapisać notatki.' };
+  }
+}
+
+// Zakończenie mycia z opcjonalną notatką od myjni (status READY)
+export async function finishOrderWithNote(orderId: string, note?: string) {
+  try {
+    const trimmed = note?.trim();
+    const dataToUpdate: any = {
+      status: 'READY',
+      completedAt: new Date(),
+      ...(trimmed ? { notes: trimmed } : {}),
+    };
+
+    const updated = await prisma.washOrder.update({
+      where: { id: orderId },
+      data: dataToUpdate,
+      include: {
+        department: true,
+        category: true,
+        assignedEmployee: true,
+      },
+    });
+
+    revalidatePath('/planner');
+    revalidatePath('/order');
+    revalidatePath('/summary');
+
+    return { success: true, order: updated };
+  } catch (error) {
+    console.error('finishOrderWithNote error:', error);
+    return { success: false, error: 'Nie udało się zakończyć zlecenia.' };
+  }
+}
+
 export async function deleteOrder(orderId: string) {
   try {
     await prisma.washOrder.delete({

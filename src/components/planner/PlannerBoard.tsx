@@ -6,9 +6,10 @@ import {
   getOrdersForDate, 
   updateOrderStatus, 
   scheduleOrder, 
-  quickFinishOrder,
   deleteOrder,
-  createOrder
+  createOrder,
+  finishOrderWithNote,
+  addOrderNote
 } from '@/actions/orders';
 import { 
   Calendar, 
@@ -34,7 +35,8 @@ import {
   X,
   AlertOctagon,
   CalendarClock,
-  Move
+  Move,
+  FileText
 } from 'lucide-react';
 import { format, addDays, subDays } from 'date-fns';
 import { pl } from 'date-fns/locale';
@@ -82,6 +84,9 @@ export default function PlannerBoard({
   const [quickAddPrefill, setQuickAddPrefill] = useState<{ time: string; employeeId: string } | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [finishConfirmId, setFinishConfirmId] = useState<string | null>(null);
+  const [finishNote, setFinishNote] = useState('');
+  const [noteEditOrderId, setNoteEditOrderId] = useState<string | null>(null);
+  const [noteEditText, setNoteEditText] = useState('');
   const [showOverdueTodayPanel, setShowOverdueTodayPanel] = useState(true); // domyślnie rozwinięty
 
   // Drag & Drop (long-press) rescheduling state
@@ -347,11 +352,6 @@ export default function PlannerBoard({
     fetchDayOrders();
   };
 
-  const handleFinishOrder = async (orderId: string) => {
-    await quickFinishOrder(orderId);
-    fetchDayOrders();
-  };
-
   const handleCompleteOrder = async (orderId: string) => {
     await updateOrderStatus(orderId, 'COMPLETED');
     fetchDayOrders();
@@ -367,8 +367,24 @@ export default function PlannerBoard({
 
   const handleConfirmFinish = async () => {
     if (finishConfirmId) {
-      await handleFinishOrder(finishConfirmId);
+      await finishOrderWithNote(finishConfirmId, finishNote);
+      setFinishNote('');
       setFinishConfirmId(null);
+      fetchDayOrders();
+    }
+  };
+
+  const openNoteModal = (ord: any) => {
+    setNoteEditOrderId(ord.id);
+    setNoteEditText(ord.notes || '');
+  };
+
+  const handleSaveNote = async () => {
+    if (noteEditOrderId) {
+      await addOrderNote(noteEditOrderId, noteEditText);
+      setNoteEditOrderId(null);
+      setNoteEditText('');
+      fetchDayOrders();
     }
   };
 
@@ -1351,6 +1367,14 @@ export default function PlannerBoard({
                           </div>
                         </div>
 
+                        {/* Note from wash bay */}
+                        {ord.notes && (
+                          <div className="mb-2 px-2 py-1.5 rounded-lg bg-sky-950/60 border border-sky-500/30 text-[10px] text-sky-200 flex items-start gap-1.5">
+                            <FileText className="w-3 h-3 text-sky-400 flex-shrink-0 mt-0.5" />
+                            <span className="leading-snug break-words">{ord.notes}</span>
+                          </div>
+                        )}
+
                         {/* Touch Action Buttons (Tablet-Friendly) */}
                         <div className="grid grid-cols-2 gap-1 pt-1.5 border-t border-white/10">
                           
@@ -1383,6 +1407,14 @@ export default function PlannerBoard({
                               <span>WYDANE Z MYJNI</span>
                             </button>
                           )}
+
+                          <button
+                            onClick={() => openNoteModal(ord)}
+                            className="py-1 rounded-lg bg-slate-800 hover:bg-sky-900/60 text-slate-300 hover:text-sky-300 text-[10px] font-semibold transition-colors flex items-center justify-center gap-1"
+                          >
+                            <FileText className="w-3 h-3" />
+                            <span>Notatka</span>
+                          </button>
 
                           <button
                             onClick={() => setEditingOrder(ord)}
@@ -1498,9 +1530,22 @@ export default function PlannerBoard({
                 {orderForConfirm.carModel ? <span className="text-slate-400 font-normal"> • {orderForConfirm.carModel}</span> : null}
               </p>
             )}
-            <p className="text-xs text-slate-400 mb-6">
+            <p className="text-xs text-slate-400 mb-4">
               Zlecenie zostanie oznaczone jako zrealizowane.
             </p>
+
+            <div className="text-left mb-5">
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">
+                Notatka z myjni (opcjonalnie)
+              </label>
+              <textarea
+                value={finishNote}
+                onChange={(e) => setFinishNote(e.target.value)}
+                placeholder="np. Przekazano klientowi w salonie, uwagi do lakieru..."
+                rows={2}
+                className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white text-xs placeholder:text-slate-600 focus:outline-none focus:border-emerald-500 resize-none"
+              />
+            </div>
 
             <div className="flex items-center gap-3">
               <button
@@ -1521,6 +1566,55 @@ export default function PlannerBoard({
           </div>
         </div>
       )}
+
+      {/* Note Edit Modal */}
+      {noteEditOrderId && (() => {
+        const ord = [...orders, ...pastUnfinishedOrders].find(o => o.id === noteEditOrderId);
+        return (
+          <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-slate-900 border border-sky-700 rounded-3xl p-6 sm:p-7 w-full max-w-sm shadow-2xl animate-in fade-in zoom-in duration-150">
+              <div className="flex items-start gap-3 mb-4">
+                <div className="w-12 h-12 rounded-2xl bg-sky-500/10 text-sky-400 flex items-center justify-center flex-shrink-0">
+                  <FileText className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-lg text-white mb-1">Notatka z myjni</h3>
+                  <p className="text-sm font-bold text-sky-300">
+                    {ord?.licensePlate}
+                    {ord?.carModel ? <span className="text-slate-400 font-normal"> • {ord.carModel}</span> : null}
+                  </p>
+                </div>
+              </div>
+
+              <textarea
+                value={noteEditText}
+                onChange={(e) => setNoteEditText(e.target.value)}
+                placeholder="np. Uwagi z myjni: co zrobiono, przekazano do działu..."
+                rows={4}
+                autoFocus
+                className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white text-sm placeholder:text-slate-600 focus:outline-none focus:border-sky-500 resize-none mb-5"
+              />
+
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setNoteEditOrderId(null)}
+                  className="flex-1 py-3.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs transition-colors"
+                >
+                  Anuluj
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveNote}
+                  className="flex-1 py-3.5 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs shadow-lg shadow-sky-600/30 transition-all"
+                >
+                  Zapisz notatkę
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Drag & Drop Reschedule Confirmation Modal */}
       {dropConfirm && (
