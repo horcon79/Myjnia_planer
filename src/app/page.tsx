@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { getCurrentUser } from '@/actions/auth';
 import { redirect } from 'next/navigation';
 import LoginSelector from '@/components/auth/LoginSelector';
+import { AnimatedDroplet } from '@/components/AnimatedDroplet';
 import { getAppVersion } from '@/lib/version';
 import { ShieldCheck } from 'lucide-react';
 
@@ -33,13 +34,8 @@ export default async function HomePage() {
 
         {/* Header Branding */}
         <div className="text-center mb-8 sm:mb-12">
-          <div className="inline-flex items-center justify-center w-20 h-20 sm:w-24 sm:h-24 rounded-2xl bg-white shadow-xl shadow-sky-500/25 mb-4 animate-bounce-slow overflow-hidden">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src="/Logo.png"
-              alt="Myjnia Planer"
-              className="w-full h-full object-contain p-2"
-            />
+          <div className="inline-flex items-center justify-center w-20 h-20 sm:w-24 sm:h-24 rounded-2xl bg-white shadow-xl shadow-sky-500/25 mb-4 overflow-hidden">
+            <AnimatedDroplet size={64} />
           </div>
           <h1 className="text-3xl sm:text-4xl lg:text-5xl font-black tracking-tight text-white uppercase">
             MYJNIA PLANER

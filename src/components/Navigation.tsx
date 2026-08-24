@@ -18,6 +18,7 @@ import {
   BarChart3
 } from 'lucide-react';
 import { SessionUser, logout } from '@/actions/auth';
+import { AnimatedDroplet } from './AnimatedDroplet';
 
 interface NavigationProps {
   user: SessionUser | null;
@@ -94,12 +95,7 @@ export default function Navigation({ user }: NavigationProps) {
             className="flex items-center gap-3 group"
           >
             <div className="w-10 h-10 md:w-12 md:h-12 rounded-xl flex items-center justify-center overflow-hidden bg-white shadow-lg shadow-sky-500/20 group-hover:scale-105 transition-transform">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src="/Logo.png"
-                alt="Myjnia Planer"
-                className="w-full h-full object-contain p-1"
-              />
+              <AnimatedDroplet size={32} />
             </div>
             <div>
               <div className="flex items-center gap-2">
