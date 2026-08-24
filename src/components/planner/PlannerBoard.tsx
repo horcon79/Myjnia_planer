@@ -63,6 +63,13 @@ export default function PlannerBoard({
   // Active employees on shift (persisted in localStorage / session)
   const [activeEmpIds, setActiveEmpIds] = useState<string[]>(employees.map(e => e.id));
 
+  // Shift start timestamps (ms epoch) per employee – used for auto-deactivation & elapsed time
+  const [shiftStartTimes, setShiftStartTimes] = useState<Record<string, number>>({});
+  // Confirmation modal for starting/ending a shift (prevents accidental taps)
+  const [shiftConfirmEmp, setShiftConfirmEmp] = useState<{ id: string; action: 'start' | 'end' } | null>(null);
+  // Tick for refreshing elapsed-time labels
+  const [nowTick, setNowTick] = useState(0);
+
   // Modals and confirmation state
   const [editingOrder, setEditingOrder] = useState<any | null>(null);
   const [modalScheduleDate, setModalScheduleDate] = useState(currentDate);
@@ -97,6 +104,10 @@ export default function PlannerBoard({
   const maxCarsLimit = parseInt(settings.MAX_SIMULTANEOUS_CARS || '3', 10);
   const workStartHour = parseInt(settings.WORK_START_HOUR || '7', 10);
   const workEndHour = parseInt(settings.WORK_END_HOUR || '18', 10);
+
+  // Shift length limits: standard 8h shift, auto-deactivate after 9h
+  const STANDARD_SHIFT_MS = 8 * 60 * 60 * 1000;
+  const AUTO_DEACTIVATE_MS = 9 * 60 * 60 * 1000;
 
   // Sync modal state whenever editingOrder changes
   useEffect(() => {
@@ -172,22 +183,34 @@ export default function PlannerBoard({
   }, [currentDate]);
 
   // Load saved shift staff on mount
+  // Load shift staff + start times for the CURRENT viewed day (per-day roster)
   useEffect(() => {
     try {
-      const saved = localStorage.getItem('myjnia_shift_employees');
+      const saved = localStorage.getItem(`myjnia_shift_employees_${currentDate}`);
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) {
+        if (Array.isArray(parsed)) {
           const validIds = parsed.filter((id: string) => employees.some(e => e.id === id));
-          if (validIds.length > 0) {
-            setActiveEmpIds(validIds);
-          }
+          setActiveEmpIds(validIds);
         }
+      } else {
+        // No shift configured for this day → default: everyone is available
+        setActiveEmpIds(employees.map(e => e.id));
+      }
+
+      const savedTimes = localStorage.getItem(`myjnia_shift_times_${currentDate}`);
+      if (savedTimes) {
+        const parsedTimes = JSON.parse(savedTimes);
+        if (parsedTimes && typeof parsedTimes === 'object') {
+          setShiftStartTimes(parsedTimes);
+        }
+      } else {
+        setShiftStartTimes({});
       }
     } catch (e) {
       console.error(e);
     }
-  }, [employees]);
+  }, [employees, currentDate]);
 
   // Auto-scroll to current hour when date is today
   const isToday = currentDate === format(new Date(), 'yyyy-MM-dd');
@@ -214,17 +237,108 @@ export default function PlannerBoard({
     }
   }, [isLoading, currentDate]);
 
-  // Handle employee toggle (persisted)
-  const toggleEmployeeShift = (empId: string) => {
+  // Refresh "elapsed time" labels every 60s
+  useEffect(() => {
+    const interval = setInterval(() => setNowTick(Date.now()), 60000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Auto-deactivate employees whose shift has exceeded AUTO_DEACTIVATE_MS (9h)
+  useEffect(() => {
+    const checkAutoDeactivate = () => {
+      const now = Date.now();
+      setActiveEmpIds(prev => {
+        const stillValid = prev.filter(id => {
+          const start = shiftStartTimes[id];
+          if (!start) return true;
+          return now - start < AUTO_DEACTIVATE_MS;
+        });
+        if (stillValid.length !== prev.length) {
+          const nextTimes: Record<string, number> = {};
+          stillValid.forEach(id => {
+            if (shiftStartTimes[id]) nextTimes[id] = shiftStartTimes[id];
+          });
+          setShiftStartTimes(nextTimes);
+          try {
+            localStorage.setItem(`myjnia_shift_employees_${currentDate}`, JSON.stringify(stillValid));
+            localStorage.setItem(`myjnia_shift_times_${currentDate}`, JSON.stringify(nextTimes));
+          } catch (e) {
+            console.error(e);
+          }
+          return stillValid;
+        }
+        return prev;
+      });
+    };
+
+    const interval = setInterval(checkAutoDeactivate, 60000);
+    checkAutoDeactivate();
+    return () => clearInterval(interval);
+  }, [shiftStartTimes, currentDate]);
+
+  // Click on employee chip → ask for confirmation (prevents accidental taps)
+  const requestShiftChange = (empId: string, currentlyActive: boolean) => {
+    setShiftConfirmEmp({ id: empId, action: currentlyActive ? 'end' : 'start' });
+  };
+
+  // Confirm start/end of shift (persisted per day)
+  const confirmShiftChange = () => {
+    if (!shiftConfirmEmp) return;
+    const { id, action } = shiftConfirmEmp;
+
     setActiveEmpIds(prev => {
-      const next = prev.includes(empId) ? prev.filter(id => id !== empId) : [...prev, empId];
+      let next: string[];
+      if (action === 'start') {
+        next = prev.includes(id) ? prev : [...prev, id];
+      } else {
+        next = prev.filter(eid => eid !== id);
+      }
       try {
-        localStorage.setItem('myjnia_shift_employees', JSON.stringify(next));
+        localStorage.setItem(`myjnia_shift_employees_${currentDate}`, JSON.stringify(next));
       } catch (e) {
         console.error(e);
       }
       return next;
     });
+
+    if (action === 'start') {
+      setShiftStartTimes(prev => {
+        const next = { ...prev, [id]: Date.now() };
+        try {
+          localStorage.setItem(`myjnia_shift_times_${currentDate}`, JSON.stringify(next));
+        } catch (e) {
+          console.error(e);
+        }
+        return next;
+      });
+    } else {
+      setShiftStartTimes(prev => {
+        const next = { ...prev };
+        delete next[id];
+        try {
+          localStorage.setItem(`myjnia_shift_times_${currentDate}`, JSON.stringify(next));
+        } catch (e) {
+          console.error(e);
+        }
+        return next;
+      });
+    }
+
+    setShiftConfirmEmp(null);
+  };
+
+  // Helpers for shift display
+  const formatElapsedTime = (startMs: number) => {
+    const elapsedMs = Math.max(0, nowTick - startMs);
+    const hours = Math.floor(elapsedMs / (60 * 60 * 1000));
+    const minutes = Math.floor((elapsedMs % (60 * 60 * 1000)) / (60 * 1000));
+    return `${hours}h ${minutes.toString().padStart(2, '0')}m`;
+  };
+
+  const isOverShift = (empId: string) => {
+    const start = shiftStartTimes[empId];
+    if (!start) return false;
+    return nowTick - start >= STANDARD_SHIFT_MS;
   };
 
   // Status changes
@@ -491,6 +605,96 @@ export default function PlannerBoard({
   const columnMinWidth = activeEmployees.length >= 4 ? '185px' : '220px';
   const gridTemplate = `75px repeat(${activeEmployees.length}, minmax(${columnMinWidth}, 1fr))`;
 
+  // Timeline geometry: fixed slot height + gap so absolute card positioning aligns with slot cells
+  const SLOT_HEIGHT = 58;
+  const SLOT_GAP = 8;
+  const SLOT_STEP = SLOT_HEIGHT + SLOT_GAP;
+  const columnHeight = timeSlots.length * SLOT_STEP - SLOT_GAP;
+
+  // Card layouts: for each employee, orders spanning their duration + overlap lanes (columns)
+  const cardLayouts = useMemo(() => {
+    const result: Record<string, { order: any; startIdx: number; numSlots: number; lane: number; laneCount: number }[]> = {};
+
+    activeEmployees.forEach((emp) => {
+      const dayOrders = orders
+        .filter(o => o.assignedEmployeeId === emp.id && o.scheduledStartTime
+          && format(new Date(o.scheduledStartTime), 'yyyy-MM-dd') === currentDate)
+        .map(o => {
+          const start = new Date(o.scheduledStartTime).getTime();
+          return { o, start, end: start + (o.durationMin || 30) * 60000 };
+        })
+        .sort((a, b) => a.start - b.start);
+
+      // Group into connected components of overlapping intervals
+      const comps: { start: number; end: number; items: typeof dayOrders }[] = [];
+      dayOrders.forEach(it => {
+        const overlapping = comps.filter(c => it.start < c.end && c.start < it.end);
+        if (overlapping.length === 0) {
+          comps.push({ start: it.start, end: it.end, items: [it] });
+        } else {
+          const main = overlapping[0];
+          main.items.push(it);
+          main.start = Math.min(main.start, it.start);
+          main.end = Math.max(main.end, it.end);
+          for (let i = 1; i < overlapping.length; i++) {
+            const c = overlapping[i];
+            main.items.push(...c.items);
+            main.start = Math.min(main.start, c.start);
+            main.end = Math.max(main.end, c.end);
+            comps.splice(comps.indexOf(c), 1);
+          }
+        }
+      });
+
+      // Assign lanes (columns) greedily within each component
+      const layouts: { order: any; startIdx: number; numSlots: number; lane: number; laneCount: number }[] = [];
+      comps.forEach(c => {
+        const items = [...c.items].sort((a, b) => a.start - b.start);
+        const laneEnds: number[] = [];
+        const laneFor: number[] = [];
+
+        // 1) Pass 1: assign a lane to every order (track each lane's current end time)
+        items.forEach(it => {
+          let lane = laneEnds.findIndex(e => e <= it.start);
+          if (lane === -1) {
+            lane = laneEnds.length;
+            laneEnds.push(it.end);
+          } else {
+            laneEnds[lane] = it.end;
+          }
+          laneFor.push(lane);
+        });
+
+        // 2) Pass 2: ALL orders in this component share the same laneCount,
+        //    so overlapping cards get the same width and sit side by side.
+        const laneCount = laneEnds.length;
+        items.forEach((it, i) => {
+          const startDate = new Date(it.start);
+          const startMinutes = startDate.getHours() * 60 + startDate.getMinutes();
+          const startIdx = Math.max(0, Math.min(Math.floor(startMinutes / 30) - workStartHour * 2, timeSlots.length - 1));
+          const numSlots = Math.max(1, Math.round((it.o.durationMin || 30) / 30));
+          layouts.push({ order: it.o, startIdx, numSlots, lane: laneFor[i], laneCount });
+        });
+      });
+
+      result[emp.id] = layouts;
+    });
+
+    return result;
+  }, [orders, activeEmployees, currentDate, timeSlots, workStartHour]);
+
+  // Which (emp, slotIdx) cells are covered by at least one card (for the "+" hint)
+  const coveredCells = useMemo(() => {
+    const set = new Set<string>();
+    Object.entries(cardLayouts).forEach(([empId, layouts]) => {
+      layouts.forEach(l => {
+        const endIdx = Math.min(l.startIdx + l.numSlots, timeSlots.length);
+        for (let i = l.startIdx; i < endIdx; i++) set.add(`${empId}|${i}`);
+      });
+    });
+    return set;
+  }, [cardLayouts, timeSlots.length]);
+
   return (
     <div className="flex-1 flex flex-col space-y-4">
       
@@ -555,13 +759,17 @@ export default function PlannerBoard({
           </span>
           {employees.map((emp) => {
             const isActive = activeEmpIds.includes(emp.id);
+            const overShift = isActive && isOverShift(emp.id);
+            const elapsed = isActive && shiftStartTimes[emp.id] ? formatElapsedTime(shiftStartTimes[emp.id]) : null;
             return (
               <button
                 key={emp.id}
-                onClick={() => toggleEmployeeShift(emp.id)}
+                onClick={() => requestShiftChange(emp.id, isActive)}
                 className={`px-2.5 py-1.5 sm:py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 border ${
                   isActive
-                    ? 'bg-slate-800 border-sky-500 text-white shadow'
+                    ? overShift
+                      ? 'bg-amber-950/80 border-amber-500 text-amber-200 shadow'
+                      : 'bg-slate-800 border-sky-500 text-white shadow'
                     : 'bg-slate-950/60 border-slate-800 text-slate-500 hover:text-slate-300'
                 }`}
               >
@@ -569,8 +777,13 @@ export default function PlannerBoard({
                   className="w-2.5 h-2.5 rounded-full flex-shrink-0"
                   style={{ backgroundColor: emp.color }}
                 />
-                <span className="truncate max-w-[80px] sm:max-w-none">{emp.shortName}</span>
-                {isActive && <Check className="w-3 h-3 text-sky-400" />}
+                <span className="truncate max-w-[70px] sm:max-w-none">{emp.shortName}</span>
+                {elapsed && (
+                  <span className={`text-[10px] font-mono font-bold ${overShift ? 'text-amber-400' : 'text-sky-400'}`}>
+                    {elapsed}
+                  </span>
+                )}
+                {isActive && <Check className={`w-3 h-3 ${overShift ? 'text-amber-400' : 'text-sky-400'}`} />}
               </button>
             );
           })}
@@ -861,36 +1074,28 @@ export default function PlannerBoard({
 
             </div>
 
-            {/* Time Grid Rows */}
-            <div className="space-y-2.5">
-              {timeSlots.map((slot) => {
-                const [slotH, slotM] = slot.split(':').map(Number);
-                const currentSlot = getCurrentSlotString();
-                const isCurrentSlot = isToday && slot === currentSlot;
-                
-                const nowMinutes = new Date().getHours() * 60 + new Date().getMinutes();
-                const thisSlotMinutes = slotH * 60 + slotM;
-                const isPastSlot = isToday && thisSlotMinutes < nowMinutes - 30;
+            {/* Time Grid: fixed-height columns per employee, cards span their duration */}
+            <div className="grid gap-2 sm:gap-3" style={{ gridTemplateColumns: gridTemplate }}>
+              {/* Time labels column */}
+              <div className="flex flex-col gap-2">
+                {timeSlots.map((slot) => {
+                  const currentSlot = getCurrentSlotString();
+                  const isCurrentSlot = isToday && slot === currentSlot;
+                  const nowMinutes = new Date().getHours() * 60 + new Date().getMinutes();
+                  const [slotH, slotM] = slot.split(':').map(Number);
+                  const isPastSlot = isToday && (slotH * 60 + slotM) < nowMinutes - 30;
 
-                return (
-                  <div
-                    key={slot}
-                    id={`slot-row-${slot}`}
-                    className={`group grid gap-2 sm:gap-3 items-stretch min-h-[58px] rounded-2xl transition-all ${
-                      isCurrentSlot
-                        ? 'ring-2 ring-sky-500 bg-sky-950/20 p-1'
-                        : isPastSlot
-                        ? 'opacity-85'
-                        : ''
-                    }`}
-                    style={{ gridTemplateColumns: gridTemplate }}
-                  >
-                    {/* Time Label (Sticky on horizontal scroll) */}
-                    <div className={`flex flex-col items-center justify-center font-mono font-bold text-xs rounded-xl border transition-colors ${
-                      isCurrentSlot
-                        ? 'bg-sky-500 text-white border-sky-400 shadow-lg shadow-sky-500/30'
-                        : 'bg-slate-950 text-slate-400 border-slate-800'
-                    }`}>
+                  return (
+                    <div
+                      key={slot}
+                      id={`slot-row-${slot}`}
+                      className={`flex flex-col items-center justify-center font-mono font-bold text-xs rounded-xl border transition-colors ${
+                        isCurrentSlot
+                          ? 'bg-sky-500 text-white border-sky-400 shadow-lg shadow-sky-500/30'
+                          : 'bg-slate-950 text-slate-400 border-slate-800'
+                      } ${isPastSlot ? 'opacity-85' : ''}`}
+                      style={{ height: SLOT_HEIGHT }}
+                    >
                       <span>{slot}</span>
                       {isCurrentSlot && (
                         <span className="text-[8px] uppercase tracking-tighter font-black bg-white/20 px-1 rounded mt-0.5">
@@ -898,198 +1103,313 @@ export default function PlannerBoard({
                         </span>
                       )}
                     </div>
+                  );
+                })}
+              </div>
 
-                    {/* Columns per Employee */}
-                    {activeEmployees.map((emp) => {
-                      // CRITICAL FIX: Only match orders strictly belonging to THIS VIEWED currentDate
-                      const slotOrders = orders.filter((o) => {
-                        if (o.assignedEmployeeId !== emp.id || !o.scheduledStartTime) return false;
-                        const start = new Date(o.scheduledStartTime);
-                        const startDateStr = format(start, 'yyyy-MM-dd');
-                        if (startDateStr !== currentDate) return false; // STRICT DATE MATCH!
+              {/* Employee columns */}
+              {activeEmployees.map((emp) => (
+                <div key={emp.id} className="group relative" style={{ height: columnHeight }}>
+                  {/* Background slot cells (drop targets + long-press quick add) */}
+                  {timeSlots.map((slot, slotIdx) => {
+                    const currentSlot = getCurrentSlotString();
+                    const isCurrentSlot = isToday && slot === currentSlot;
+                    const nowMinutes = new Date().getHours() * 60 + new Date().getMinutes();
+                    const [slotH, slotM] = slot.split(':').map(Number);
+                    const isPastSlot = isToday && (slotH * 60 + slotM) < nowMinutes - 30;
+                    const isCovered = coveredCells.has(`${emp.id}|${slotIdx}`);
 
-                        return start.getHours() === slotH && (slotM === 0 ? start.getMinutes() < 30 : start.getMinutes() >= 30);
-                      });
+                    return (
+                      <div
+                        key={slot}
+                        data-drop-cell
+                        data-drop-time={slot}
+                        data-drop-emp={emp.id}
+                        onPointerDown={(e) => handleCellPointerDown(e, slot, emp.id)}
+                        onPointerMove={handleCellPointerMove}
+                        onPointerUp={handleCellPointerUp}
+                        onPointerCancel={handleCellPointerUp}
+                        onDoubleClick={(e) => {
+                          if ((e.target as HTMLElement).closest('[data-order-card], button')) return;
+                          setQuickAddPrefill({ time: slot, employeeId: emp.id });
+                        }}
+                        className={`absolute left-0 right-0 rounded-2xl flex items-center justify-center transition-all border ${
+                          dropTarget && dropTarget.time === slot && dropTarget.employeeId === emp.id
+                            ? 'bg-emerald-500/20 border-emerald-400 ring-2 ring-emerald-400/60'
+                            : isCurrentSlot
+                            ? 'bg-slate-950/80 border-sky-500/40'
+                            : 'bg-slate-950/40 border-slate-800/60 hover:bg-slate-950/80'
+                        } ${isPastSlot ? 'opacity-85' : ''}`}
+                        style={{ top: slotIdx * SLOT_STEP, height: SLOT_HEIGHT }}
+                      >
+                        {!isCovered && (
+                          <span className="text-slate-700 group-hover:text-sky-400 transition-colors pointer-events-none">
+                            <Plus className="w-4 h-4 opacity-40 group-hover:opacity-100" />
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
 
-                      return (
-                        <div
-                          key={emp.id}
-                          data-drop-cell
-                          data-drop-time={slot}
-                          data-drop-emp={emp.id}
-                          onPointerDown={(e) => handleCellPointerDown(e, slot, emp.id)}
-                          onPointerMove={handleCellPointerMove}
-                          onPointerUp={handleCellPointerUp}
-                          onPointerCancel={handleCellPointerUp}
-                          onDoubleClick={(e) => {
-                            if ((e.target as HTMLElement).closest('[data-order-card], button')) return;
-                            setQuickAddPrefill({ time: slot, employeeId: emp.id });
-                          }}
-                          className={`border rounded-2xl p-1.5 flex flex-col gap-1.5 relative transition-all ${
-                            dropTarget && dropTarget.time === slot && dropTarget.employeeId === emp.id
-                              ? 'bg-emerald-500/20 border-emerald-400 ring-2 ring-emerald-400/60'
-                              : isCurrentSlot
-                              ? 'bg-slate-950/80 border-sky-500/40'
-                              : 'bg-slate-950/40 border-slate-800/60 hover:bg-slate-950/80'
-                          }`}
-                        >
-                          {slotOrders.map((ord) => {
-                            const isReady = ord.status === 'READY';
-                            const isInProgress = ord.status === 'IN_PROGRESS';
-                            const isCompleted = ord.status === 'COMPLETED';
-                            
-                            // Check if this order is earlier than current hour on today's schedule and uncompleted
-                            const isOverdue = isPastSlot && !isCompleted && !isReady;
+                  {/* Order cards – absolutely positioned, spanning full service duration */}
+                  {(cardLayouts[emp.id] || []).map((layout) => {
+                    const ord = layout.order;
+                    const isReady = ord.status === 'READY';
+                    const isInProgress = ord.status === 'IN_PROGRESS';
+                    const isCompleted = ord.status === 'COMPLETED';
+                    const laneWidth = 100 / layout.laneCount;
+                    const cardTop = layout.startIdx * SLOT_STEP;
+                    const cardHeight = Math.max(SLOT_HEIGHT, layout.numSlots * SLOT_STEP - SLOT_GAP);
 
-                            return (
-                              <div
-                                key={ord.id}
-                                data-order-card
-                                onPointerDown={(e) => handleCardPointerDown(e, ord)}
-                                onPointerMove={handleCardPointerMove}
-                                onPointerUp={handleCardPointerUp}
-                                onPointerCancel={handleCardPointerUp}
-                                style={{ touchAction: 'none' }}
-                                className={`rounded-xl border transition-all relative overflow-hidden shadow select-none ${
-                                  dragOrderId === ord.id
-                                    ? 'opacity-40 ring-2 ring-sky-400 scale-95'
-                                    : ''
-                                } ${
-                                  isOverdue
-                                    ? 'p-2 bg-gradient-to-r from-rose-950/70 to-slate-900 border-rose-500/60 text-white' // Minimized / Compact for past unfinished cars
-                                    : isReady
-                                    ? 'p-2.5 sm:p-3 bg-emerald-950/90 border-emerald-500 text-white pulse-ready'
-                                    : isInProgress
-                                    ? 'p-2.5 sm:p-3 bg-amber-950/90 border-amber-500 text-white pulse-in-progress'
-                                    : isCompleted
-                                    ? 'p-2 bg-slate-900/60 border-slate-800 text-slate-400 opacity-60'
-                                    : 'p-2.5 sm:p-3 bg-slate-900 border-slate-700 text-white hover:border-sky-500'
-                                }`}
-                              >
-                                {isOverdue && (
-                                  <div className="flex items-center gap-1 text-[9px] font-black text-rose-400 uppercase tracking-wider mb-1 bg-rose-950/60 px-1.5 py-0.5 rounded border border-rose-500/30">
-                                    <AlertTriangle className="w-3 h-3" />
-                                    <span>ZALEGŁA GODZINA</span>
-                                  </div>
-                                )}
+                    // Compact layout for overlapping cards – full actions only when there's no collision
+                    const isCompact = layout.laneCount > 1;
 
-                                {/* Top Plate & Department */}
-                                <div className="flex items-start justify-between gap-1 mb-1.5">
-                                  <div>
-                                    <div className="flex items-center gap-1.5 flex-wrap">
-                                      <span className="font-mono font-black text-sm sm:text-base tracking-wider bg-black/40 px-2 py-0.5 rounded border border-white/10">
-                                        {ord.licensePlate}
-                                      </span>
-                                      <span 
-                                        className="text-[9px] font-black px-1.5 py-0.5 rounded text-white"
-                                        style={{ backgroundColor: ord.department?.color || '#3b82f6' }}
-                                      >
-                                        {ord.department?.code}
-                                      </span>
-                                    </div>
-                                    <p className="text-[11px] sm:text-xs font-bold mt-0.5 truncate max-w-[170px]">
-                                      {ord.carModel || 'Pojazd salonowy'}
-                                    </p>
-                                  </div>
+                    // Check if this order starts earlier than current time (today) and is unfinished
+                    const cardSlot = timeSlots[Math.min(layout.startIdx, timeSlots.length - 1)];
+                    const [cH, cM] = cardSlot.split(':').map(Number);
+                    const nowMinutes = new Date().getHours() * 60 + new Date().getMinutes();
+                    const isOverdue = isToday && (cH * 60 + cM) < nowMinutes - 30 && !isCompleted && !isReady;
 
-                                  <div className="flex items-center gap-1">
-                                    {ord.isOverCapacity && (
-                                      <span className="text-[8px] font-black px-1.5 py-0.5 rounded bg-rose-500 text-white uppercase" title="Dodano ponad limit">
-                                        +OVER
-                                      </span>
-                                    )}
-                                    {ord.scheduledStartTime && 
-                                      (new Date(ord.scheduledStartTime).getTime() + (ord.durationMin || 30) * 60000) > new Date(ord.targetReadyTime).getTime() && 
-                                      !isCompleted && (
-                                      <span className="text-[8px] font-black px-1.5 py-0.5 rounded bg-rose-600 text-white uppercase flex items-center gap-0.5 shadow animate-pulse" title="Mycie zaplanowane po terminie wydania!">
-                                        <AlertTriangle className="w-2.5 h-2.5" />
-                                        OPÓŹNIENIE
-                                      </span>
-                                    )}
-                                  </div>
-                                </div>
-
-                                {/* Service and Deadline */}
-                                <div className="text-[11px] space-y-0.5 mb-2">
-                                  <p className="text-slate-300 font-medium truncate text-[10px] sm:text-[11px]">
-                                    {ord.category?.name}
-                                  </p>
-                                  <div className="flex items-center justify-between text-[10px]">
-                                    <span className="font-bold text-sky-400">
-                                      ⏱ {ord.durationMin}m
-                                    </span>
-                                    <span className="font-bold text-amber-300">
-                                      Cel: {format(new Date(ord.targetReadyTime), 'd MMM HH:mm', { locale: pl })}
-                                    </span>
-                                  </div>
-                                </div>
-
-                                {/* Touch Action Buttons (Tablet-Friendly) */}
-                                <div className="grid grid-cols-2 gap-1 pt-1.5 border-t border-white/10">
-                                  
-                                  {ord.status === 'PLANNED' && (
-                                    <button
-                                      onClick={() => handleStartOrder(ord.id)}
-                                      className="col-span-2 py-2 sm:py-2.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs transition-all flex items-center justify-center gap-1 shadow"
-                                    >
-                                      <Play className="w-3.5 h-3.5 fill-current" />
-                                      <span>ROZPOCZNIJ</span>
-                                    </button>
-                                  )}
-
-                                  {ord.status === 'IN_PROGRESS' && (
-                                    <button
-                                      onClick={() => setFinishConfirmId(ord.id)}
-                                      className="col-span-2 py-2.5 sm:py-3 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs transition-all flex items-center justify-center gap-1.5 shadow-lg shadow-emerald-500/30 animate-bounce-slow"
-                                    >
-                                      <CheckCircle2 className="w-4 h-4 stroke-[3]" />
-                                      <span>GOTOWE / ZREALIZOWANO</span>
-                                    </button>
-                                  )}
-
-                                  {ord.status === 'READY' && (
-                                    <button
-                                      onClick={() => handleCompleteOrder(ord.id)}
-                                      className="col-span-2 py-1.5 sm:py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-emerald-400 font-bold text-xs transition-all flex items-center justify-center gap-1 border border-emerald-500/40"
-                                    >
-                                      <Check className="w-3.5 h-3.5" />
-                                      <span>WYDANE Z MYJNI</span>
-                                    </button>
-                                  )}
-
-                                  <button
-                                    onClick={() => setEditingOrder(ord)}
-                                    className="py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] font-semibold transition-colors flex items-center justify-center gap-1"
-                                  >
-                                    <Edit3 className="w-3 h-3" />
-                                    <span>Zmień</span>
-                                  </button>
-
-                                  <button
-                                    onClick={() => setDeleteConfirmId(ord.id)}
-                                    className="py-1 rounded-lg bg-slate-800 hover:bg-rose-900/60 text-slate-400 hover:text-rose-300 text-[10px] font-semibold transition-colors flex items-center justify-center gap-1"
-                                  >
-                                    <Trash2 className="w-3 h-3" />
-                                    <span>Usuń</span>
-                                  </button>
-
-                                </div>
-
+                    return (
+                      <div
+                        key={ord.id}
+                        data-order-card
+                        data-drop-cell
+                        data-drop-time={cardSlot}
+                        data-drop-emp={emp.id}
+                        onPointerDown={(e) => handleCardPointerDown(e, ord)}
+                        onPointerMove={handleCardPointerMove}
+                        onPointerUp={handleCardPointerUp}
+                        onPointerCancel={handleCardPointerUp}
+                        onClick={() => { if (isCompact) setEditingOrder(ord); }}
+                        style={{
+                          touchAction: 'none',
+                          position: 'absolute',
+                          top: cardTop,
+                          height: 'auto',
+                          minHeight: cardHeight,
+                          left: `calc(${layout.lane * laneWidth}% + ${layout.lane > 0 ? SLOT_GAP / 2 : 0}px)`,
+                          width: `calc(${laneWidth}% - ${SLOT_GAP}px)`,
+                          zIndex: dragOrderId === ord.id ? 30 : (isCompact ? 20 : 10),
+                        }}
+                        className={`rounded-xl border transition-all relative shadow select-none ${
+                          isCompact ? 'overflow-hidden' : ''
+                        } ${
+                          dragOrderId === ord.id
+                            ? 'opacity-40 ring-2 ring-sky-400 scale-95'
+                            : ''
+                        } ${
+                          isOverdue
+                            ? isCompact
+                              ? 'bg-gradient-to-r from-rose-950/80 to-slate-900 border-rose-500/70 text-white'
+                              : 'p-2 bg-gradient-to-r from-rose-950/70 to-slate-900 border-rose-500/60 text-white'
+                            : isReady
+                            ? isCompact
+                              ? 'bg-emerald-950 border-emerald-500 text-white pulse-ready'
+                              : 'p-2.5 sm:p-3 bg-emerald-950/90 border-emerald-500 text-white pulse-ready'
+                            : isInProgress
+                            ? isCompact
+                              ? 'bg-amber-950 border-amber-500 text-white pulse-in-progress'
+                              : 'p-2.5 sm:p-3 bg-amber-950/90 border-amber-500 text-white pulse-in-progress'
+                            : isCompleted
+                            ? 'p-2 bg-slate-900/60 border-slate-800 text-slate-400 opacity-60'
+                            : isCompact
+                            ? 'bg-slate-900 border-slate-700 text-white hover:border-sky-500 cursor-pointer'
+                            : 'p-2.5 sm:p-3 bg-slate-900 border-slate-700 text-white hover:border-sky-500'
+                        } ${isCompact ? 'p-1.5' : ''}`}
+                      >
+                        {isCompact ? (
+                          <>
+                            {isOverdue && (
+                              <div className="flex items-center gap-0.5 text-[8px] font-black text-rose-400 uppercase tracking-wider mb-0.5 bg-rose-950/60 px-1 py-0.5 rounded border border-rose-500/30">
+                                <AlertTriangle className="w-2.5 h-2.5" />
+                                <span>ZALEGŁA</span>
                               </div>
-                            );
-                          })}
-                          {slotOrders.length === 0 && (
-                            <div className="flex-1 flex items-center justify-center min-h-[40px] text-slate-700 hover:text-sky-400 transition-colors pointer-events-none">
-                              <Plus className="w-4 h-4 opacity-40 group-hover:opacity-100" />
+                            )}
+                            <div className="flex items-center gap-1 mb-0.5">
+                              <span className="font-mono font-black text-[11px] tracking-wide bg-black/40 px-1.5 py-0.5 rounded border border-white/10 truncate">
+                                {ord.licensePlate}
+                              </span>
+                              <span
+                                className="text-[8px] font-black px-1 py-0.5 rounded text-white flex-shrink-0"
+                                style={{ backgroundColor: ord.department?.color || '#3b82f6' }}
+                              >
+                                {ord.department?.code}
+                              </span>
                             </div>
-                          )}
-                        </div>
-                      );
-                    })}
+                            <div className="flex items-center justify-between text-[9px]">
+                              <span className="font-bold text-sky-300 truncate">
+                                {ord.category?.name}
+                              </span>
+                              <span className="font-bold text-sky-400 flex-shrink-0 ml-1">⏱ {ord.durationMin}m</span>
+                            </div>
 
-                  </div>
-                );
-              })}
+                            {/* Compact action buttons (overlapping card) */}
+                            <div className="flex flex-col gap-1 pt-1 mt-1 border-t border-white/10">
+                              {ord.status === 'PLANNED' && (
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); handleStartOrder(ord.id); }}
+                                  className="py-1 rounded bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-[9px] flex items-center justify-center gap-1"
+                                >
+                                  <Play className="w-2.5 h-2.5 fill-current" />
+                                  ROZPOCZNIJ
+                                </button>
+                              )}
+                              {ord.status === 'IN_PROGRESS' && (
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); setFinishConfirmId(ord.id); }}
+                                  className="py-1 rounded bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-[9px] flex items-center justify-center gap-1"
+                                >
+                                  <CheckCircle2 className="w-2.5 h-2.5 stroke-[3]" />
+                                  GOTOWE
+                                </button>
+                              )}
+                              {ord.status === 'READY' && (
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); handleCompleteOrder(ord.id); }}
+                                  className="py-1 rounded bg-slate-700 hover:bg-slate-600 text-emerald-300 font-bold text-[9px] flex items-center justify-center gap-1 border border-emerald-500/40"
+                                >
+                                  <Check className="w-2.5 h-2.5" />
+                                  WYDANE
+                                </button>
+                              )}
+                              <div className="flex gap-1">
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); setEditingOrder(ord); }}
+                                  className="flex-1 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[9px] font-semibold flex items-center justify-center gap-1"
+                                >
+                                  <Edit3 className="w-2.5 h-2.5" />
+                                  Zmień
+                                </button>
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); setDeleteConfirmId(ord.id); }}
+                                  className="flex-1 py-1 rounded bg-slate-800 hover:bg-rose-900/60 text-slate-400 hover:text-rose-300 text-[9px] font-semibold flex items-center justify-center gap-1"
+                                >
+                                  <Trash2 className="w-2.5 h-2.5" />
+                                  Usuń
+                                </button>
+                              </div>
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                        {isOverdue && (
+                          <div className="flex items-center gap-1 text-[9px] font-black text-rose-400 uppercase tracking-wider mb-1 bg-rose-950/60 px-1.5 py-0.5 rounded border border-rose-500/30">
+                            <AlertTriangle className="w-3 h-3" />
+                            <span>ZALEGŁA GODZINA</span>
+                          </div>
+                        )}
+
+                        {/* Top Plate & Department */}
+                        <div className="flex items-start justify-between gap-1 mb-1.5">
+                          <div>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="font-mono font-black text-sm sm:text-base tracking-wider bg-black/40 px-2 py-0.5 rounded border border-white/10">
+                                {ord.licensePlate}
+                              </span>
+                              <span 
+                                className="text-[9px] font-black px-1.5 py-0.5 rounded text-white"
+                                style={{ backgroundColor: ord.department?.color || '#3b82f6' }}
+                              >
+                                {ord.department?.code}
+                              </span>
+                            </div>
+                            <p className="text-[11px] sm:text-xs font-bold mt-0.5 truncate max-w-[170px]">
+                              {ord.carModel || 'Pojazd salonowy'}
+                            </p>
+                          </div>
+
+                          <div className="flex items-center gap-1">
+                            {ord.isOverCapacity && (
+                              <span className="text-[8px] font-black px-1.5 py-0.5 rounded bg-rose-500 text-white uppercase" title="Dodano ponad limit">
+                                +OVER
+                              </span>
+                            )}
+                            {ord.scheduledStartTime && 
+                              (new Date(ord.scheduledStartTime).getTime() + (ord.durationMin || 30) * 60000) > new Date(ord.targetReadyTime).getTime() && 
+                              !isCompleted && (
+                              <span className="text-[8px] font-black px-1.5 py-0.5 rounded bg-rose-600 text-white uppercase flex items-center gap-0.5 shadow animate-pulse" title="Mycie zaplanowane po terminie wydania!">
+                                <AlertTriangle className="w-2.5 h-2.5" />
+                                OPÓŹNIENIE
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Service and Deadline */}
+                        <div className="text-[11px] space-y-0.5 mb-2">
+                          <p className="text-slate-300 font-medium truncate text-[10px] sm:text-[11px]">
+                            {ord.category?.name}
+                          </p>
+                          <div className="flex items-center justify-between text-[10px]">
+                            <span className="font-bold text-sky-400">
+                              ⏱ {ord.durationMin}m
+                            </span>
+                            <span className="font-bold text-amber-300">
+                              Cel: {format(new Date(ord.targetReadyTime), 'd MMM HH:mm', { locale: pl })}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Touch Action Buttons (Tablet-Friendly) */}
+                        <div className="grid grid-cols-2 gap-1 pt-1.5 border-t border-white/10">
+                          
+                          {ord.status === 'PLANNED' && (
+                            <button
+                              onClick={() => handleStartOrder(ord.id)}
+                              className="col-span-2 py-2 sm:py-2.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs transition-all flex items-center justify-center gap-1 shadow"
+                            >
+                              <Play className="w-3.5 h-3.5 fill-current" />
+                              <span>ROZPOCZNIJ</span>
+                            </button>
+                          )}
+
+                          {ord.status === 'IN_PROGRESS' && (
+                            <button
+                              onClick={() => setFinishConfirmId(ord.id)}
+                              className="col-span-2 py-2.5 sm:py-3 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs transition-all flex items-center justify-center gap-1.5 shadow-lg shadow-emerald-500/30 animate-bounce-slow"
+                            >
+                              <CheckCircle2 className="w-4 h-4 stroke-[3]" />
+                              <span>GOTOWE / ZREALIZOWANO</span>
+                            </button>
+                          )}
+
+                          {ord.status === 'READY' && (
+                            <button
+                              onClick={() => handleCompleteOrder(ord.id)}
+                              className="col-span-2 py-1.5 sm:py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-emerald-400 font-bold text-xs transition-all flex items-center justify-center gap-1 border border-emerald-500/40"
+                            >
+                              <Check className="w-3.5 h-3.5" />
+                              <span>WYDANE Z MYJNI</span>
+                            </button>
+                          )}
+
+                          <button
+                            onClick={() => setEditingOrder(ord)}
+                            className="py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] font-semibold transition-colors flex items-center justify-center gap-1"
+                          >
+                            <Edit3 className="w-3 h-3" />
+                            <span>Zmień</span>
+                          </button>
+
+                          <button
+                            onClick={() => setDeleteConfirmId(ord.id)}
+                            className="py-1 rounded-lg bg-slate-800 hover:bg-rose-900/60 text-slate-400 hover:text-rose-300 text-[10px] font-semibold transition-colors flex items-center justify-center gap-1"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                            <span>Usuń</span>
+                          </button>
+
+                        </div>
+
+                          </>
+                        )}
+
+                      </div>
+                    );
+                  })}
+                </div>
+              ))}
             </div>
 
           </div>
@@ -1488,6 +1808,58 @@ export default function PlannerBoard({
           </div>
         </div>
       )}
+
+      {/* Shift Start/End Confirmation Modal (prevents accidental taps on tablet) */}
+      {shiftConfirmEmp && (() => {
+        const emp = employees.find(e => e.id === shiftConfirmEmp.id);
+        const isStarting = shiftConfirmEmp.action === 'start';
+        if (!emp) return null;
+        return (
+          <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-slate-900 border border-sky-700 rounded-3xl p-6 sm:p-7 w-full max-w-sm shadow-2xl animate-in fade-in zoom-in duration-150 text-center">
+              <div className="w-14 h-14 rounded-2xl mx-auto mb-4 flex items-center justify-center"
+                style={{ backgroundColor: emp.color }}
+              >
+                <span className="text-white font-black text-lg">{emp.shortName.slice(0, 2).toUpperCase()}</span>
+              </div>
+              <h3 className="font-extrabold text-lg text-white mb-1">
+                {isStarting ? 'Rozpocząć zmianę?' : 'Zakończyć zmianę?'}
+              </h3>
+              <p className="text-sm font-bold text-sky-300 mb-1">{emp.name}</p>
+              {isStarting ? (
+                <p className="text-xs text-slate-400 mb-6">
+                  Pracownik będzie aktywny na grafiku. Standardowa zmiana trwa 8h — po 9h nastąpi automatyczna deaktywacja.
+                </p>
+              ) : (
+                <p className="text-xs text-slate-400 mb-6">
+                  Pracownik zniknie z grafiku i nie będzie mu przypisywane nowe auta.
+                </p>
+              )}
+
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setShiftConfirmEmp(null)}
+                  className="flex-1 py-3.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs transition-colors"
+                >
+                  Anuluj
+                </button>
+                <button
+                  type="button"
+                  onClick={confirmShiftChange}
+                  className={`flex-1 py-3.5 rounded-xl font-bold text-xs shadow-lg transition-all ${
+                    isStarting
+                      ? 'bg-sky-600 hover:bg-sky-500 text-white shadow-sky-600/30'
+                      : 'bg-amber-600 hover:bg-amber-500 text-white shadow-amber-600/30'
+                  }`}
+                >
+                  {isStarting ? 'Tak, Rozpocznij' : 'Tak, Zakończ'}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Quick Add Order Modal (Manual Override from Wash Bay) */}
       {quickAddPrefill && (

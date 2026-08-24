@@ -22,7 +22,8 @@ export default async function SettingsPage() {
 
   const [departments, categories, employees, settingsList] = await Promise.all([
     prisma.department.findMany({ orderBy: { order: 'asc' } }),
-    prisma.washCategory.findMany({ orderBy: { order: 'asc' } }),
+    // Tylko aktywne kategorie – usunięte (dezaktywowane) nie wracają po odświeżeniu
+    prisma.washCategory.findMany({ where: { isActive: true }, orderBy: { order: 'asc' } }),
     // Pracownicy pobierani tylko dla admina (brak potrzeby wysyłania danych jeśli zakładka ukryta)
     isAdmin ? prisma.employee.findMany({ orderBy: { name: 'asc' } }) : [],
     prisma.appSetting.findMany(),
