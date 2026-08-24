@@ -1,0 +1,88 @@
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+generator client {
+  provider   = "prisma-client-js"
+  engineType = "binary"
+}
+
+model Department {
+  id        String      @id @default(cuid())
+  slug      String      @unique // e.g. "handlowy", "serwis", "uzywane", "omoda", "myjnia"
+  name      String      // e.g. "Dział Handlowy (Nowe)"
+  code      String      // e.g. "DH"
+  color     String      @default("#3b82f6")
+  icon      String?     @default("Car")
+  pin       String      @default("1234")
+  order     Int         @default(0)
+  isActive  Boolean     @default(true)
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+  orders    WashOrder[]
+}
+
+model WashCategory {
+  id                 String      @id @default(cuid())
+  name               String      // e.g. "Przygotowanie nowego do wydania"
+  defaultDurationMin Int         @default(30) // np. 150 min (2.5h)
+  color              String      @default("#6366f1")
+  description        String?
+  suggestedNotes     String?     // rozdzielone przecinkami lub JSON z szablonami
+  order              Int         @default(0)
+  isActive           Boolean     @default(true)
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
+  orders             WashOrder[]
+}
+
+model Employee {
+  id          String      @id @default(cuid())
+  name        String      // Imię i Nazwisko
+  shortName   String      // np. "Marek K."
+  color       String      @default("#10b981")
+  isActive    Boolean     @default(true)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  orders      WashOrder[]
+}
+
+model WashOrder {
+  id                  String       @id @default(cuid())
+  orderNumber         String       // np. "Z-2026-08-01"
+  licensePlate        String       // np. "KR 874NM"
+  carModel            String?      // np. "Omoda 5 Premium", "Jaecoo 7"
+  carType             String       @default("PASSENGER") // "PASSENGER" (osobowe) | "DELIVERY" (dostawcze)
+  
+  departmentId        String
+  department          Department   @relation(fields: [departmentId], references: [id])
+  
+  categoryId          String
+  category            WashCategory @relation(fields: [categoryId], references: [id])
+  
+  targetReadyTime     DateTime     // Godzina, na którą auto MUSI być gotowe (np. wydanie z klientem)
+  scheduledStartTime  DateTime?    // Kiedy zaplanowano w planerze
+  scheduledEndTime    DateTime?    // Kiedy ma się skończyć
+  durationMin         Int          @default(30) // Czas w minutach
+  
+  assignedEmployeeId  String?
+  assignedEmployee    Employee?    @relation(fields: [assignedEmployeeId], references: [id])
+  
+  status              String       @default("PLANNED") // "PLANNED" (Zaplanowane / W kolejce) | "IN_PROGRESS" (W trakcie mycia) | "READY" (Gotowe do odbioru) | "COMPLETED" (Wydane / Odebrane) | "CANCELLED"
+  isOverCapacity      Boolean      @default(false) // Czy dodano jako override ponad limit
+  notes               String?      // Uwagi do zlecenia
+  contactPerson       String?      // Np. "Tomasz (Handlowy)" lub tel.
+  
+  startedAt           DateTime?
+  completedAt         DateTime?
+  
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
+}
+
+model AppSetting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+}
