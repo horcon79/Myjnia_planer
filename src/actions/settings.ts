@@ -20,6 +20,7 @@ export async function getAppSettings() {
       WORK_START_HOUR: '7',
       WORK_END_HOUR: '18',
       ALLOW_OVER_CAPACITY: 'true',
+      HIDE_DEFAULT_PINS: 'false',
     };
 
     for (const item of settingsList) {
@@ -37,6 +38,7 @@ export async function getAppSettings() {
         WORK_START_HOUR: '7',
         WORK_END_HOUR: '18',
         ALLOW_OVER_CAPACITY: 'true',
+        HIDE_DEFAULT_PINS: 'false',
       },
     };
   }

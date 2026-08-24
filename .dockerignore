@@ -16,7 +16,7 @@ prisma/*.db-journal
 *.db-journal
 
 # Git / system / edytory
-.git
+# UWAGA: .git NIE jest ignorowany – next.config.ts liczy commity podczas builda
 .gitignore
 .DS_Store
 Thumbs.db

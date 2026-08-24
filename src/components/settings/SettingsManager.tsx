@@ -157,6 +157,7 @@ export default function SettingsManager({
       await updateAppSetting('DELIVERY_CAR_WEIGHT', settings.DELIVERY_CAR_WEIGHT);
       await updateAppSetting('WORK_START_HOUR', settings.WORK_START_HOUR);
       await updateAppSetting('WORK_END_HOUR', settings.WORK_END_HOUR);
+      await updateAppSetting('HIDE_DEFAULT_PINS', settings.HIDE_DEFAULT_PINS === 'true' ? 'true' : 'false');
       setSettingsSavedMsg(true);
       setTimeout(() => setSettingsSavedMsg(false), 3000);
       router.refresh();
@@ -600,6 +601,27 @@ export default function SettingsManager({
                 />
               </div>
             </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">
+                  Bezpieczeństwo Logowania
+                </label>
+                <label className="flex items-start gap-3 p-4 rounded-xl bg-slate-950 border border-slate-700 cursor-pointer transition-colors hover:border-sky-500/50">
+                  <input
+                    type="checkbox"
+                    checked={settings.HIDE_DEFAULT_PINS === 'true'}
+                    onChange={(e) => setSettings(prev => ({ ...prev, HIDE_DEFAULT_PINS: e.target.checked ? 'true' : 'false' }))}
+                    className="mt-0.5 w-5 h-5 rounded-md accent-sky-500 cursor-pointer"
+                  />
+                  <span>
+                    <span className="block text-sm font-bold text-white">Nie podpowiadaj domyślnych haseł przy logowaniu</span>
+                    <span className="block text-[11px] text-slate-500 mt-1">
+                      Ukrywa podpowiedzi PIN oraz nie uzupełnia pola hasła na ekranie logowania.
+                      Działy będą musiały znać swój kod PIN, aby się zalogować.
+                    </span>
+                  </span>
+                </label>
+              </div>
 
             {settingsSavedMsg && (
               <div className="p-3 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 text-xs font-bold flex items-center gap-2">

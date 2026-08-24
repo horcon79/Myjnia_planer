@@ -34,6 +34,7 @@ export default async function SettingsPage() {
     WORK_START_HOUR: '7',
     WORK_END_HOUR: '18',
     ALLOW_OVER_CAPACITY: 'true',
+    HIDE_DEFAULT_PINS: 'false',
   };
   settingsList.forEach(s => {
     settingsMap[s.key] = s.value;

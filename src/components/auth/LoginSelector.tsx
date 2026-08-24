@@ -29,9 +29,10 @@ interface DepartmentItem {
 interface LoginSelectorProps {
   departments: DepartmentItem[];
   currentUser: SessionUser | null;
+  hideDefaultPins?: boolean;
 }
 
-export default function LoginSelector({ departments, currentUser }: LoginSelectorProps) {
+export default function LoginSelector({ departments, currentUser, hideDefaultPins = false }: LoginSelectorProps) {
   const router = useRouter();
   const [selectedDept, setSelectedDept] = useState<DepartmentItem | null>(null);
   const [pinInput, setPinInput] = useState('');
@@ -57,7 +58,8 @@ export default function LoginSelector({ departments, currentUser }: LoginSelecto
 
   const handleSelect = (dept: DepartmentItem) => {
     setSelectedDept(dept);
-    setPinInput(dept.pin || '1234'); // Pre-fill default PIN for quick intranet access
+    // Jeśli admin wyłączył podpowiadanie haseł – nie uzupełniaj pola PIN
+    setPinInput(hideDefaultPins ? '' : (dept.pin || '1234'));
     setErrorMsg('');
   };
 
@@ -209,9 +211,11 @@ export default function LoginSelector({ departments, currentUser }: LoginSelecto
                     className="w-full pl-11 pr-4 py-3.5 rounded-xl bg-slate-800 border border-slate-700 text-white font-mono text-lg tracking-widest focus:outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-500/20"
                   />
                 </div>
-                <p className="text-[11px] text-slate-500 mt-1.5">
-                  Domyślny PIN: <span className="font-mono text-slate-400">{selectedDept.pin || '1234'}</span>
-                </p>
+                {!hideDefaultPins && (
+                  <p className="text-[11px] text-slate-500 mt-1.5">
+                    Domyślny PIN: <span className="font-mono text-slate-400">{selectedDept.pin || '1234'}</span>
+                  </p>
+                )}
               </div>
 
               {errorMsg && (
