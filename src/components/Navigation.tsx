@@ -10,7 +10,6 @@ import {
   Settings2, 
   LogOut, 
   UserCircle2, 
-  Droplets,
   Wrench,
   Car,
   BadgeCheck,
@@ -94,21 +93,20 @@ export default function Navigation({ user }: NavigationProps) {
             href={user?.role === 'WASHER' ? '/planner' : '/order'} 
             className="flex items-center gap-3 group"
           >
-            <div className="w-10 h-10 md:w-12 md:h-12 rounded-xl bg-gradient-to-br from-sky-500 to-blue-700 flex items-center justify-center shadow-lg shadow-sky-500/20 group-hover:scale-105 transition-transform">
-              <Droplets className="w-6 h-6 md:w-7 md:h-7 text-white" />
+            <div className="w-10 h-10 md:w-12 md:h-12 rounded-xl flex items-center justify-center overflow-hidden bg-white shadow-lg shadow-sky-500/20 group-hover:scale-105 transition-transform">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="/Logo.png"
+                alt="Myjnia Planer"
+                className="w-full h-full object-contain p-1"
+              />
             </div>
             <div>
               <div className="flex items-center gap-2">
                 <span className="font-extrabold text-lg md:text-xl tracking-tight text-white group-hover:text-sky-400 transition-colors">
                   MYJNIA PLANER
                 </span>
-                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-sky-500/20 text-sky-400 border border-sky-500/30 uppercase tracking-wider">
-                  Salon & Serwis
-                </span>
               </div>
-              <p className="text-xs text-slate-400 font-medium hidden sm:block">
-                Zarządzanie kolejką i przepustowością
-              </p>
             </div>
           </Link>
 

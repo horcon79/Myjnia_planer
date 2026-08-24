@@ -4,7 +4,7 @@ import { getCurrentUser } from '@/actions/auth';
 import { redirect } from 'next/navigation';
 import LoginSelector from '@/components/auth/LoginSelector';
 import { getAppVersion } from '@/lib/version';
-import { Droplets, Sparkles, ShieldCheck } from 'lucide-react';
+import { ShieldCheck } from 'lucide-react';
 
 export const dynamic = 'force-dynamic';
 
@@ -33,8 +33,13 @@ export default async function HomePage() {
 
         {/* Header Branding */}
         <div className="text-center mb-8 sm:mb-12">
-          <div className="inline-flex items-center justify-center p-4 rounded-2xl bg-gradient-to-br from-sky-500 to-blue-600 shadow-xl shadow-sky-500/25 mb-4 animate-bounce-slow">
-            <Droplets className="w-12 h-12 text-white" />
+          <div className="inline-flex items-center justify-center w-20 h-20 sm:w-24 sm:h-24 rounded-2xl bg-white shadow-xl shadow-sky-500/25 mb-4 animate-bounce-slow overflow-hidden">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/Logo.png"
+              alt="Myjnia Planer"
+              className="w-full h-full object-contain p-2"
+            />
           </div>
           <h1 className="text-3xl sm:text-4xl lg:text-5xl font-black tracking-tight text-white uppercase">
             MYJNIA PLANER
