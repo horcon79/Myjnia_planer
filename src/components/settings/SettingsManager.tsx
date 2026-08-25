@@ -1,11 +1,13 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { SessionUser } from '@/actions/auth';
 import { upsertCategory, deleteCategory } from '@/actions/categories';
 import { upsertDepartment, toggleDepartmentActive } from '@/actions/departments';
 import { upsertEmployee, toggleEmployeeActive } from '@/actions/employees';
 import { updateAppSetting } from '@/actions/settings';
+import { getDmsStatus, refreshDmsCache } from '@/actions/dms';
+import type { DmsServiceStatus } from '@/lib/dms-types';
 import { 
   Settings, 
   Layers, 
@@ -21,7 +23,11 @@ import {
   Palette, 
   Sparkles,
   Sliders,
-  X
+  X,
+  Database,
+  RefreshCw,
+  AlertTriangle,
+  CheckCircle2
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 
@@ -52,6 +58,8 @@ export default function SettingsManager({
   // Departments state
   const [departments, setDepartments] = useState<any[]>(initialDepartments);
   const [deptModal, setDeptModal] = useState<any | null>(null);
+  const [dmsStatus, setDmsStatus] = useState<DmsServiceStatus | null>(null);
+  const [dmsStatusLoading, setDmsStatusLoading] = useState(false);
 
   // Employees state
   const [employees, setEmployees] = useState<any[]>(initialEmployees);
@@ -101,6 +109,10 @@ export default function SettingsManager({
     const code = (form.elements.namedItem('dept-code') as HTMLInputElement).value;
     const color = (form.elements.namedItem('dept-color') as HTMLInputElement).value;
     const pin = (form.elements.namedItem('dept-pin') as HTMLInputElement).value;
+    const dmsEnabled = (form.elements.namedItem('dept-dms-enabled') as HTMLInputElement).checked;
+    const dmsServiceCode = (form.elements.namedItem('dept-dms-code') as HTMLInputElement).value;
+    const dmsMaxAgeMin = parseInt((form.elements.namedItem('dept-dms-age') as HTMLInputElement).value, 10) || 15;
+    const defaultCategoryId = (form.elements.namedItem('dept-default-cat') as HTMLSelectElement).value;
 
     const res = await upsertDepartment({
       id: deptModal?.id,
@@ -109,6 +121,10 @@ export default function SettingsManager({
       code,
       color,
       pin,
+      dmsEnabled,
+      dmsServiceCode,
+      dmsMaxAgeMin,
+      defaultCategoryId: defaultCategoryId || null,
     });
 
     if (res.success && res.department) {
@@ -164,6 +180,30 @@ export default function SettingsManager({
     } finally {
       setSavingSettings(false);
     }
+  };
+
+  // Load DMS integration status when editing a department with DMS enabled
+  useEffect(() => {
+    if (!deptModal?.id || !deptModal?.dmsEnabled) return;
+    let cancelled = false;
+    (async () => {
+      setDmsStatusLoading(true);
+      const res = await getDmsStatus(deptModal.id);
+      if (!cancelled) setDmsStatus(res.success ? res.status ?? null : null);
+      if (!cancelled) setDmsStatusLoading(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deptModal?.id, deptModal?.dmsEnabled]);
+
+  const handleDmsRefresh = async () => {
+    if (!deptModal?.id) return;
+    setDmsStatusLoading(true);
+    const res = await refreshDmsCache(deptModal.id);
+    setDmsStatus(res.success ? res.status ?? null : null);
+    setDmsStatusLoading(false);
   };
 
   return (
@@ -424,6 +464,12 @@ export default function SettingsManager({
 
                   <h3 className="font-extrabold text-base text-white">{dept.name}</h3>
                   <p className="text-xs text-slate-500 mt-0.5">Identyfikator: {dept.slug}</p>
+                  {dept.dmsEnabled && (
+                    <span className="inline-flex items-center gap-1 mt-2 text-[9px] font-black px-1.5 py-0.5 rounded bg-violet-500/15 text-violet-300 border border-violet-500/30 uppercase">
+                      <Database className="w-3 h-3" />
+                      DMS: {dept.dmsServiceCode || '—'}
+                    </span>
+                  )}
                 </div>
 
                 <div className="flex items-center justify-end gap-2 pt-4 border-t border-slate-800/80 mt-4">
@@ -807,6 +853,112 @@ export default function SettingsManager({
                     className="w-full h-11 rounded-xl bg-slate-950 border border-slate-700 cursor-pointer p-1"
                   />
                 </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-400 mb-1">Domyślna usługa mycia</label>
+                <select
+                  name="dept-default-cat"
+                  defaultValue={deptModal.defaultCategoryId || ''}
+                  className="w-full px-4 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white font-bold text-sm focus:border-sky-500 cursor-pointer appearance-none"
+                >
+                  <option value="" className="bg-slate-900 text-slate-400">— Brak (pierwsza usługa) —</option>
+                  {categories.filter((c) => c.isActive).map((c) => (
+                    <option key={c.id} value={c.id} className="bg-slate-900 text-white">
+                      {c.name} — {c.defaultDurationMin} min
+                    </option>
+                  ))}
+                </select>
+                <span className="text-[10px] text-slate-500">
+                  Usługa podpowiadana domyślnie w formularzu Zgłoś mycie dla tego działu
+                </span>
+              </div>
+
+              <div className="border-t border-slate-800 pt-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <Database className="w-4 h-4 text-violet-400" />
+                  <span className="text-xs font-bold uppercase tracking-wider text-violet-300">Integracja DMS Solution</span>
+                </div>
+
+                <label className="flex items-start gap-3 p-3 rounded-xl bg-slate-950 border border-slate-800 cursor-pointer mb-3">
+                  <input
+                    name="dept-dms-enabled"
+                    type="checkbox"
+                    defaultChecked={Boolean(deptModal.dmsEnabled)}
+                    className="mt-0.5 w-4 h-4 rounded-md accent-violet-500 cursor-pointer"
+                  />
+                  <span>
+                    <span className="block text-xs font-bold text-white">Pobieranie aktywnych zleceń z DMS</span>
+                    <span className="block text-[10px] text-slate-500 mt-0.5">
+                      Lista pojazdów do wyboru w formularzu zgłoszenia mycia (odczyt z pliku JSON aktualizowanego CRON-em)
+                    </span>
+                  </span>
+                </label>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-bold uppercase text-slate-400 mb-1">Kod serwisu DMS</label>
+                    <input
+                      name="dept-dms-code"
+                      defaultValue={deptModal.dmsServiceCode || ''}
+                      placeholder="np. BS-1"
+                      className="w-full px-4 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white font-mono font-bold uppercase focus:border-violet-500"
+                    />
+                    <span className="text-[10px] text-slate-500">Filtruje pole serwis w pliku (BS-1, BS-5…)</span>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold uppercase text-slate-400 mb-1">Maks. wiek danych (min)</label>
+                    <input
+                      name="dept-dms-age"
+                      type="number"
+                      min="1"
+                      max="60"
+                      defaultValue={deptModal.dmsMaxAgeMin || 15}
+                      className="w-full px-4 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white font-mono font-bold focus:border-violet-500"
+                    />
+                    <span className="text-[10px] text-slate-500">Po przekroczeniu — ostrzeżenie o nieświeżych danych</span>
+                  </div>
+                </div>
+
+                {deptModal.dmsEnabled && (
+                  <div className="mt-3 p-3 rounded-xl bg-slate-950 border border-slate-800 text-[11px]">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="font-bold uppercase tracking-wider text-slate-400">Status integracji</span>
+                      <button
+                        type="button"
+                        onClick={handleDmsRefresh}
+                        disabled={dmsStatusLoading}
+                        className="text-[10px] px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-violet-300 font-bold flex items-center gap-1 disabled:opacity-50"
+                      >
+                        <RefreshCw className={`w-3 h-3 ${dmsStatusLoading ? 'animate-spin' : ''}`} />
+                        Odśwież
+                      </button>
+                    </div>
+                    {dmsStatusLoading ? (
+                      <p className="text-slate-500">Sprawdzanie danych DMS…</p>
+                    ) : dmsStatus && dmsStatus.available ? (
+                      <div className="space-y-1">
+                        <p className="text-emerald-400 font-bold flex items-center gap-1.5">
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          Dostępne: {dmsStatus.totalCount} zleceń dla {dmsStatus.serviceCode}
+                        </p>
+                        <p className="text-slate-400">
+                          Dane z: {dmsStatus.fileUpdatedAt ? new Date(dmsStatus.fileUpdatedAt).toLocaleString('pl-PL') : '—'}
+                          {dmsStatus.stale && (
+                            <span className="ml-2 text-amber-400 font-bold inline-flex items-center gap-1">
+                              <AlertTriangle className="w-3 h-3" /> nieświeże ({dmsStatus.fileAgeMinutes} min)
+                            </span>
+                          )}
+                        </p>
+                      </div>
+                    ) : (
+                      <p className="text-amber-400 font-bold flex items-center gap-1.5">
+                        <AlertTriangle className="w-3.5 h-3.5" />
+                        Brak danych: {dmsStatus?.error || 'plik niedostępny'}
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
 
               <div className="flex items-center gap-3 pt-3">

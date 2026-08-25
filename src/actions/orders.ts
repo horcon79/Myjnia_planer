@@ -15,6 +15,9 @@ export interface CreateOrderInput {
   scheduledStartTime?: string; // Optional direct slot
   assignedEmployeeId?: string;
   enteredByWash?: boolean; // Wprowadzone ręcznie przez myjnię (bez planowania działu)
+  dmsOrderId?: number | null; // Referencja zlecenia DMS (zlecenie_id)
+  dmsOrderNumber?: string | null; // Numer zlecenia DMS (numer_zlecenia)
+  dmsVin?: string | null; // VIN z DMS
 }
 
 export async function getOrdersForDate(dateStr: string) {
@@ -130,6 +133,9 @@ export async function createOrder(input: CreateOrderInput) {
         assignedEmployeeId: input.assignedEmployeeId || null,
         status: scheduledStart ? 'PLANNED' : 'PLANNED',
         enteredByWash: input.enteredByWash ?? false,
+        dmsOrderId: input.dmsOrderId ?? null,
+        dmsOrderNumber: input.dmsOrderNumber?.trim() || null,
+        dmsVin: input.dmsVin?.trim() || null,
         notes: input.notes?.trim() || null,
         contactPerson: input.contactPerson?.trim() || null,
       },

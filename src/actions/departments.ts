@@ -46,9 +46,21 @@ export async function upsertDepartment(data: {
   pin: string;
   order?: number;
   isActive?: boolean;
+  dmsEnabled?: boolean;
+  dmsServiceCode?: string;
+  dmsMaxAgeMin?: number;
+  defaultCategoryId?: string | null;
 }) {
   try {
     await requireAdmin();
+    const dmsServiceCode = data.dmsServiceCode?.trim().toUpperCase() || null;
+    const dmsMaxAgeMin = Math.min(60, Math.max(1, data.dmsMaxAgeMin ?? 15));
+    const dmsPayload = {
+      dmsEnabled: data.dmsEnabled ?? false,
+      dmsServiceCode,
+      dmsMaxAgeMin,
+      defaultCategoryId: data.defaultCategoryId?.trim() || null,
+    };
     if (data.id) {
       const updated = await prisma.department.update({
         where: { id: data.id },
@@ -61,10 +73,12 @@ export async function upsertDepartment(data: {
           pin: data.pin.trim(),
           order: data.order ?? 0,
           isActive: data.isActive ?? true,
+          ...dmsPayload,
         },
       });
       revalidatePath('/settings');
       revalidatePath('/');
+      revalidatePath('/order');
       return { success: true, department: updated };
     } else {
       const created = await prisma.department.create({
@@ -77,10 +91,12 @@ export async function upsertDepartment(data: {
           pin: data.pin.trim(),
           order: data.order ?? 0,
           isActive: data.isActive ?? true,
+          ...dmsPayload,
         },
       });
       revalidatePath('/settings');
       revalidatePath('/');
+      revalidatePath('/order');
       return { success: true, department: created };
     }
   } catch (error) {

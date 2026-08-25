@@ -61,3 +61,7 @@ Desktop.ini
 # == zmienne DMS ==
 .env
 /DMS
+
+# == dane synchronizacji z DMS (dane osobowe) ==
+/zlecenia_sync
+/zlecenia_sync

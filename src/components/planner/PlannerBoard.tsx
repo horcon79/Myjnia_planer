@@ -1180,6 +1180,9 @@ export default function PlannerBoard({
 
                     // Compact layout for overlapping cards – full actions only when there's no collision
                     const isCompact = layout.laneCount > 1;
+                    // Short cards (<= 2 slots) get a tight vertical layout so they fit their duration span
+                    const isTight = layout.numSlots <= 2;
+                    const isCondensed = isCompact || isTight;
 
                     // Check if this order starts earlier than current time (today) and is unfinished
                     const cardSlot = timeSlots[Math.min(layout.startIdx, timeSlots.length - 1)];
@@ -1198,13 +1201,15 @@ export default function PlannerBoard({
                         onPointerMove={handleCardPointerMove}
                         onPointerUp={handleCardPointerUp}
                         onPointerCancel={handleCardPointerUp}
-                        onClick={() => { if (isCompact) setEditingOrder(ord); }}
+                        onClick={() => { if (isCondensed) setEditingOrder(ord); }}
                         style={{
                           touchAction: 'none',
                           position: 'absolute',
                           top: cardTop,
-                          height: 'auto',
-                          minHeight: cardHeight,
+                          height: cardHeight,
+                          minHeight: 0,
+                          overflowY: 'auto',
+                          overflowX: 'hidden',
                           left: `calc(${layout.lane * laneWidth}% + ${layout.lane > 0 ? SLOT_GAP / 2 : 0}px)`,
                           width: `calc(${laneWidth}% - ${SLOT_GAP}px)`,
                           zIndex: dragOrderId === ord.id ? 30 : (isCompact ? 20 : 10),
@@ -1217,25 +1222,89 @@ export default function PlannerBoard({
                             : ''
                         } ${
                           isOverdue
-                            ? isCompact
+                            ? isCondensed
                               ? 'bg-gradient-to-r from-rose-950/80 to-slate-900 border-rose-500/70 text-white'
                               : 'p-2 bg-gradient-to-r from-rose-950/70 to-slate-900 border-rose-500/60 text-white'
                             : isReady
-                            ? isCompact
+                            ? isCondensed
                               ? 'bg-emerald-950 border-emerald-500 text-white pulse-ready'
                               : 'p-2.5 sm:p-3 bg-emerald-950/90 border-emerald-500 text-white pulse-ready'
                             : isInProgress
-                            ? isCompact
+                            ? isCondensed
                               ? 'bg-amber-950 border-amber-500 text-white pulse-in-progress'
                               : 'p-2.5 sm:p-3 bg-amber-950/90 border-amber-500 text-white pulse-in-progress'
                             : isCompleted
                             ? 'p-2 bg-slate-900/60 border-slate-800 text-slate-400 opacity-60'
-                            : isCompact
+                            : isCondensed
                             ? 'bg-slate-900 border-slate-700 text-white hover:border-sky-500 cursor-pointer'
                             : 'p-2.5 sm:p-3 bg-slate-900 border-slate-700 text-white hover:border-sky-500'
-                        } ${isCompact ? 'p-1.5' : ''}`}
+                        } ${isTight ? 'p-1' : isCompact ? 'p-1.5' : ''}`}
                       >
-                        {isCompact ? (
+                        {isTight ? (
+                          <>
+                            <div className="flex items-center gap-1">
+                              <span className="font-mono font-black text-[10px] leading-tight bg-black/40 px-1 py-0.5 rounded border border-white/10 truncate max-w-[92px]">
+                                {ord.licensePlate}
+                              </span>
+                              <span
+                                className="text-[8px] font-black px-1 py-0.5 rounded text-white flex-shrink-0"
+                                style={{ backgroundColor: ord.department?.color || '#3b82f6' }}
+                              >
+                                {ord.department?.code}
+                              </span>
+                              <span className="ml-auto font-bold text-sky-400 text-[9px] flex-shrink-0">⏱ {ord.durationMin}m</span>
+                            </div>
+
+                            <div className="flex items-center justify-between gap-1 mt-0.5">
+                              <span className="text-[9px] text-slate-300 truncate">{ord.category?.name}</span>
+                              {ord.status === 'READY' && (
+                                <CheckCircle2 className="w-2.5 h-2.5 text-emerald-400 flex-shrink-0" />
+                              )}
+                            </div>
+
+                            <div className="mt-1">
+                              {ord.status === 'PLANNED' && (
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); handleStartOrder(ord.id); }}
+                                  className="w-full py-0.5 rounded bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-[9px] flex items-center justify-center gap-1"
+                                >
+                                  <Play className="w-2 h-2 fill-current" />
+                                  START
+                                </button>
+                              )}
+                              {ord.status === 'IN_PROGRESS' && (
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); setFinishConfirmId(ord.id); }}
+                                  className="w-full py-0.5 rounded bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-[9px] flex items-center justify-center gap-1"
+                                >
+                                  <CheckCircle2 className="w-2 h-2 stroke-[3]" />
+                                  GOTOWE
+                                </button>
+                              )}
+                              {ord.status === 'READY' && (
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); handleCompleteOrder(ord.id); }}
+                                  className="w-full py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-emerald-300 font-bold text-[9px] flex items-center justify-center gap-1 border border-emerald-500/40"
+                                >
+                                  <Check className="w-2 h-2" />
+                                  WYDANE
+                                </button>
+                              )}
+                              {ord.status === 'COMPLETED' && (
+                                <div className="text-center text-[8px] font-black uppercase text-slate-500 py-0.5">
+                                  Wydane
+                                </div>
+                              )}
+                            </div>
+
+                            {ord.notes && (
+                              <div className="flex items-center gap-1 mt-0.5 text-[8px] text-sky-300 truncate">
+                                <FileText className="w-2 h-2 text-sky-400 flex-shrink-0" />
+                                <span className="truncate">{ord.notes}</span>
+                              </div>
+                            )}
+                          </>
+                        ) : isCompact ? (
                           <>
                             {isOverdue && (
                               <div className="flex items-center gap-0.5 text-[8px] font-black text-rose-400 uppercase tracking-wider mb-0.5 bg-rose-950/60 px-1 py-0.5 rounded border border-rose-500/30">

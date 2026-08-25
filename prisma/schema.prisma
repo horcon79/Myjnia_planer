@@ -18,6 +18,11 @@ model Department {
   pin       String      @default("1234")
   order     Int         @default(0)
   isActive  Boolean     @default(true)
+  dmsEnabled      Boolean  @default(false) // Integracja DMS Solution (odczyt zleceń z pliku JSON)
+  dmsServiceCode  String? // Sufiks serwisu w DMS, np. "BS-1", "BS-5" (pole "serwis" w pliku JSON)
+  dmsMaxAgeMin    Int     @default(15)    // Maks. wiek pliku JSON (min) zanim pokażemy ostrzeżenie
+  defaultCategoryId String? // Domyślna usługa mycia podpowiadana w formularzu "Zgłoś mycie"
+  defaultCategory   WashCategory? @relation(fields: [defaultCategoryId], references: [id])
   createdAt DateTime    @default(now())
   updatedAt DateTime    @updatedAt
   orders    WashOrder[]
@@ -35,6 +40,7 @@ model WashCategory {
   createdAt          DateTime    @default(now())
   updatedAt          DateTime    @updatedAt
   orders             WashOrder[]
+  defaultForDepartments Department[]
 }
 
 model Employee {
@@ -72,6 +78,9 @@ model WashOrder {
   status              String       @default("PLANNED") // "PLANNED" (Zaplanowane / W kolejce) | "IN_PROGRESS" (W trakcie mycia) | "READY" (Gotowe do odbioru) | "COMPLETED" (Wydane / Odebrane) | "CANCELLED"
   isOverCapacity      Boolean      @default(false) // Czy dodano jako override ponad limit
   enteredByWash       Boolean      @default(false) // Czy auto wprowadził sam myjkowy (bez wcześniejszego planowania przez dział)
+  dmsOrderId          Int?         // us_Zlecenie.ID z DMS (zlecenie_id w pliku JSON)
+  dmsOrderNumber      String?      // numer_zlecenia z DMS (referencja zewnętrzna)
+  dmsVin              String?      // VIN z DMS (nr_nadwozia w pliku JSON)
   notes               String?      // Uwagi do zlecenia
   contactPerson       String?      // Np. "Tomasz (Handlowy)" lub tel.
   

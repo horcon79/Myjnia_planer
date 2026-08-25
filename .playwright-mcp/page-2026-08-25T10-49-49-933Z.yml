@@ -1,0 +1,115 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - banner [ref=e3]:
+      - generic [ref=e5]:
+        - link "MYJNIA PLANER" [ref=e6] [cursor=pointer]:
+          - /url: /order
+        - navigation [ref=e16]:
+          - link "Planer Myjni Tablet" [ref=e17] [cursor=pointer]:
+            - /url: /planner
+            - generic [ref=e20]: Planer Myjni
+            - generic [ref=e21]: Tablet
+          - link "Zgłoś Mycie Działy" [ref=e22] [cursor=pointer]:
+            - /url: /order
+            - generic [ref=e25]: Zgłoś Mycie
+            - generic [ref=e26]: Działy
+          - link "Ekran Statusu Live" [ref=e27] [cursor=pointer]:
+            - /url: /summary
+            - generic [ref=e30]: Ekran Statusu
+            - generic [ref=e31]: Live
+          - link "Słowniki i Ustawienia" [ref=e32] [cursor=pointer]:
+            - /url: /settings
+        - link "Wybierz Profil" [ref=e38] [cursor=pointer]:
+          - /url: /
+    - main [ref=e44]:
+      - generic [ref=e45]:
+        - generic [ref=e46]:
+          - generic [ref=e47]:
+            - button "Poprzedni dzień" [ref=e48]
+            - generic [ref=e54]:
+              - generic [ref=e55]: "Dzień:"
+              - text: wtorek, 25 sie
+            - button "Następny dzień" [ref=e56]
+            - button "Dziś (12:30)" [ref=e59]
+          - generic [ref=e65]:
+            - generic [ref=e66]: "Zmiana (5):"
+            - button "Ania" [ref=e72]
+            - button "Kuba" [ref=e77]
+            - button "Oskar" [ref=e82]
+            - button "Piotr N." [ref=e87]
+            - button "Staś" [ref=e92]
+          - generic [ref=e97]:
+            - generic [ref=e103]:
+              - text: "Myte:"
+              - strong [ref=e104]: "0"
+              - text: / 3
+            - button "+ DODAJ" [ref=e105]
+        - generic [ref=e108]:
+          - generic [ref=e109]:
+            - generic [ref=e110]: Przytrzymaj puste pole lub kliknij 2x, aby szybko dodać auto
+            - generic [ref=e112]: Przytrzymaj auto i przeciągnij, aby zmienić godzinę lub pracownika
+          - generic [ref=e118]:
+            - generic [ref=e119]:
+              - generic [ref=e120]: Czas
+              - generic [ref=e121]:
+                - generic [ref=e122]:
+                  - generic [ref=e123]: AN
+                  - generic [ref=e124]:
+                    - heading "Ania" [level=4] [ref=e125]
+                    - generic [ref=e126]: Stanowisko
+                - generic [ref=e127]: "0"
+              - generic [ref=e128]:
+                - generic [ref=e129]:
+                  - generic [ref=e130]: KU
+                  - generic [ref=e131]:
+                    - heading "Kuba" [level=4] [ref=e132]
+                    - generic [ref=e133]: Stanowisko
+                - generic [ref=e134]: "0"
+              - generic [ref=e135]:
+                - generic [ref=e136]:
+                  - generic [ref=e137]: OS
+                  - generic [ref=e138]:
+                    - heading "Oskar" [level=4] [ref=e139]
+                    - generic [ref=e140]: Stanowisko
+                - generic [ref=e141]: "0"
+              - generic [ref=e142]:
+                - generic [ref=e143]:
+                  - generic [ref=e144]: PI
+                  - generic [ref=e145]:
+                    - heading "Piotr Nowak" [level=4] [ref=e146]
+                    - generic [ref=e147]: Stanowisko
+                - generic [ref=e148]: "0"
+              - generic [ref=e149]:
+                - generic [ref=e150]:
+                  - generic [ref=e151]: ST
+                  - generic [ref=e152]:
+                    - heading "Stasiek" [level=4] [ref=e153]
+                    - generic [ref=e154]: Stanowisko
+                - generic [ref=e155]: "0"
+            - generic [ref=e157]:
+              - generic [ref=e158]: 07:00
+              - generic [ref=e160]: 07:30
+              - generic [ref=e162]: 08:00
+              - generic [ref=e164]: 08:30
+              - generic [ref=e166]: 09:00
+              - generic [ref=e168]: 09:30
+              - generic [ref=e170]: 10:00
+              - generic [ref=e172]: 10:30
+              - generic [ref=e174]: 11:00
+              - generic [ref=e176]: 11:30
+              - generic [ref=e178]: 12:00
+              - generic [ref=e180]:
+                - generic [ref=e181]: 12:30
+                - generic [ref=e182]: TERAZ
+              - generic [ref=e183]: 13:00
+              - generic [ref=e185]: 13:30
+              - generic [ref=e187]: 14:00
+              - generic [ref=e189]: 14:30
+              - generic [ref=e191]: 15:00
+              - generic [ref=e193]: 15:30
+              - generic [ref=e195]: 16:00
+              - generic [ref=e197]: 16:30
+              - generic [ref=e199]: 17:00
+              - generic [ref=e201]: 17:30
+              - generic [ref=e203]: 18:00
+  - button "Open Next.js Dev Tools" [ref=e330] [cursor=pointer]

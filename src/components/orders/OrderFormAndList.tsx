@@ -3,19 +3,21 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { SessionUser } from '@/actions/auth';
 import { createOrder, getOrdersForDate } from '@/actions/orders';
-import { 
-  Car, 
-  Truck, 
-  Plus, 
-  Clock, 
-  CheckCircle2, 
-  AlertCircle, 
-  Sparkles, 
-  Calendar, 
-  User, 
-  Phone, 
-  FileText, 
-  Check, 
+import { searchDmsVehicles, getDmsStatus, refreshDmsCache } from '@/actions/dms';
+import type { DmsSearchResult, DmsServiceStatus } from '@/lib/dms-types';
+import {
+  Car,
+  Truck,
+  Plus,
+  Clock,
+  CheckCircle2,
+  AlertCircle,
+  Sparkles,
+  Calendar,
+  User,
+  Phone,
+  FileText,
+  Check,
   RefreshCw,
   Search,
   Filter,
@@ -26,7 +28,9 @@ import {
   Lightbulb,
   ArrowRight,
   SunMedium,
-  Moon
+  Moon,
+  Database,
+  X
 } from 'lucide-react';
 import { format, addDays, isAfter, isBefore } from 'date-fns';
 import { pl } from 'date-fns/locale';
@@ -55,7 +59,7 @@ export default function OrderFormAndList({
   const isDeptLocked = Boolean(currentUser && currentUser.role === 'DEPARTMENT' && userDeptObj);
 
   const defaultDeptId = userDeptObj?.id || departments[0]?.id || '';
-  
+
   // Date helpers
   const todayStr = format(new Date(), 'yyyy-MM-dd');
   const tomorrowStr = format(addDays(new Date(), 1), 'yyyy-MM-dd');
@@ -70,21 +74,37 @@ export default function OrderFormAndList({
   const [licensePlate, setLicensePlate] = useState('');
   const [carModel, setCarModel] = useState('');
   const [carType, setCarType] = useState<'PASSENGER' | 'DELIVERY'>('PASSENGER');
-  const [selectedCatId, setSelectedCatId] = useState(categories[0]?.id || '');
-  
+  const [selectedCatId, setSelectedCatId] = useState(
+    userDeptObj?.defaultCategoryId && categories.some((c) => c.id === userDeptObj.defaultCategoryId)
+      ? userDeptObj.defaultCategoryId
+      : (categories[0]?.id || '')
+  );
+
   // Target ready date & hour (defaults to tomorrow morning if near/after closing)
   const [targetReadyDate, setTargetReadyDate] = useState(isEndOfDay ? tomorrowStr : todayStr);
   const [targetHour, setTargetHour] = useState(
-    isEndOfDay 
-      ? `${(workStartHour + 1).toString().padStart(2, '0')}:00` 
+    isEndOfDay
+      ? `${(workStartHour + 1).toString().padStart(2, '0')}:00`
       : `${Math.min(workEndHour - 1, Math.max(workStartHour + 2, 14))}:00`
   );
-  
+
   const [contactPerson, setContactPerson] = useState(currentUser?.name || '');
   const [notes, setNotes] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formSuccessMsg, setFormSuccessMsg] = useState('');
   const [formErrorMsg, setFormErrorMsg] = useState('');
+
+  // DMS integration state
+  const [dmsQuery, setDmsQuery] = useState('');
+  const [dmsResults, setDmsResults] = useState<DmsSearchResult[]>([]);
+  const [dmsShowDropdown, setDmsShowDropdown] = useState(false);
+  const [dmsSearching, setDmsSearching] = useState(false);
+  const [dmsStatus, setDmsStatus] = useState<DmsServiceStatus | null>(null);
+  const [dmsSelected, setDmsSelected] = useState<{
+    dmsOrderId: number | null;
+    dmsOrderNumber: string | null;
+    dmsVin: string | null;
+  } | null>(null);
 
   // List & Polling State
   const [orders, setOrders] = useState<any[]>([]);
@@ -96,6 +116,8 @@ export default function OrderFormAndList({
 
   const currentCat = categories.find(c => c.id === selectedCatId) || categories[0];
   const currentDeptObj = departments.find(d => d.id === selectedDeptId);
+  const dmsServiceCode = currentDeptObj?.dmsServiceCode?.trim() || null;
+  const dmsEnabled = Boolean(currentDeptObj?.dmsEnabled && dmsServiceCode);
 
   // Calculate earliest feasible ready time today based on selected service duration
   const earliestFeasibleHourToday = useMemo(() => {
@@ -113,7 +135,7 @@ export default function OrderFormAndList({
     const serviceDuration = currentCat?.defaultDurationMin || 30;
     const totalMinutes = Math.max(minutesFromNow, serviceDuration + 15);
     const future = new Date(now.getTime() + totalMinutes * 60000);
-    
+
     // If calculated time exceeds workEndHour, clamp or switch to tomorrow
     if (future.getHours() >= workEndHour) {
       setTargetReadyDate(tomorrowStr);
@@ -160,16 +182,65 @@ export default function OrderFormAndList({
     return () => clearInterval(interval);
   }, [selectedDate]);
 
+  // DMS: ładuj status integracji przy zmianie działu
+  useEffect(() => {
+    if (!dmsEnabled) return;
+    let cancelled = false;
+    getDmsStatus(selectedDeptId).then((res) => {
+      if (!cancelled) setDmsStatus(res.success ? res.status ?? null : null);
+    });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedDeptId, dmsEnabled]);
+
+  // DMS: wyszukiwanie z debounce (>=3 znaki)
+  useEffect(() => {
+    if (!dmsEnabled) return;
+    const q = dmsQuery.trim();
+    if (q.length < 3) return;
+    const t = setTimeout(async () => {
+      setDmsSearching(true);
+      const res = await searchDmsVehicles(selectedDeptId, q);
+      setDmsResults(res.success ? res.results ?? [] : []);
+      setDmsShowDropdown(true);
+      setDmsSearching(false);
+    }, 250);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dmsQuery, selectedDeptId, dmsEnabled]);
+
+  const handleDmsRefresh = async () => {
+    setDmsSearching(true);
+    const res = await refreshDmsCache(selectedDeptId);
+    setDmsStatus(res.success ? res.status ?? null : null);
+    setDmsSearching(false);
+  };
+
+  const pickDms = (r: DmsSearchResult) => {
+    setLicensePlate((r.licensePlate || '').toUpperCase());
+    setCarModel([r.brand, r.model].filter(Boolean).join(' ').trim());
+    setCarType('PASSENGER');
+    setDmsSelected({
+      dmsOrderId: r.dmsOrderId != null ? r.dmsOrderId : null,
+      dmsOrderNumber: r.orderNumber || null,
+      dmsVin: r.vin || null,
+    });
+    setDmsQuery('');
+    setDmsShowDropdown(false);
+  };
+
   // Workload calculations on the selected ready date
   const workloadStats = useMemo(() => {
     const activeOrdersOnDay = orders.filter(o => o.status !== 'COMPLETED');
     const totalMinutes = activeOrdersOnDay.reduce((acc, o) => acc + (o.durationMin || 30), 0);
     // Capacity with 3 bays: effective throughput
     const effectiveHours = (totalMinutes / 3 / 60).toFixed(1);
-    
+
     const isTargetToday = targetReadyDate === todayStr;
     const remainingMinutesToday = Math.max(0, (workEndHour - now.getHours()) * 60 - now.getMinutes());
-    
+
     const isOverloadedToday = isTargetToday && (
       (totalMinutes / 3) + (currentCat?.defaultDurationMin || 30) > remainingMinutesToday ||
       isEndOfDay ||
@@ -235,6 +306,9 @@ export default function OrderFormAndList({
         targetReadyTime: targetDate.toISOString(),
         notes,
         contactPerson,
+        dmsOrderId: dmsSelected?.dmsOrderId ?? null,
+        dmsOrderNumber: dmsSelected?.dmsOrderNumber ?? null,
+        dmsVin: dmsSelected?.dmsVin ?? null,
       });
 
       if (res.success) {
@@ -242,14 +316,15 @@ export default function OrderFormAndList({
         setLicensePlate('');
         setCarModel('');
         setNotes('');
-        
+        setDmsSelected(null);
+
         // If order was created for another date, update viewed date to match
         if (selectedDate !== targetReadyDate) {
           setSelectedDate(targetReadyDate);
         } else {
           loadOrders();
         }
-        
+
         setTimeout(() => setFormSuccessMsg(''), 5000);
       } else {
         setFormErrorMsg(res.error || 'Nie udało się dodać zlecenia.');
@@ -315,7 +390,7 @@ export default function OrderFormAndList({
 
   return (
     <div className="space-y-8">
-      
+
       {/* Top Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-900/80 p-5 rounded-2xl border border-slate-800">
         <div>
@@ -332,17 +407,15 @@ export default function OrderFormAndList({
           <div className="flex items-center gap-1.5 bg-slate-800 p-1 rounded-xl border border-slate-700">
             <button
               onClick={() => setSelectedDate(todayStr)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${
-                selectedDate === todayStr ? 'bg-sky-500 text-white shadow' : 'text-slate-400 hover:text-white'
-              }`}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${selectedDate === todayStr ? 'bg-sky-500 text-white shadow' : 'text-slate-400 hover:text-white'
+                }`}
             >
               Dziś
             </button>
             <button
               onClick={() => setSelectedDate(tomorrowStr)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${
-                selectedDate === tomorrowStr ? 'bg-sky-500 text-white shadow' : 'text-slate-400 hover:text-white'
-              }`}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${selectedDate === tomorrowStr ? 'bg-sky-500 text-white shadow' : 'text-slate-400 hover:text-white'
+                }`}
             >
               Jutro
             </button>
@@ -365,7 +438,7 @@ export default function OrderFormAndList({
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-        
+
         {/* Form Column */}
         <div className="lg:col-span-5 bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-7 shadow-xl">
           <h2 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
@@ -407,7 +480,7 @@ export default function OrderFormAndList({
           )}
 
           <form onSubmit={handleSubmit} className="space-y-5">
-            
+
             {/* Department Selection (Locked if logged in as a specific department) */}
             <div>
               <div className="flex items-center justify-between mb-2">
@@ -445,12 +518,23 @@ export default function OrderFormAndList({
                       <button
                         type="button"
                         key={d.id}
-                        onClick={() => setSelectedDeptId(d.id)}
-                        className={`p-3 rounded-xl text-left border transition-all flex items-center gap-2 ${
-                          isSelected
-                            ? 'bg-slate-800 border-sky-500 ring-2 ring-sky-500/20 text-white font-bold'
-                            : 'bg-slate-950/60 border-slate-800 text-slate-400 hover:border-slate-700'
-                        }`}
+                        onClick={() => {
+                          setSelectedDeptId(d.id);
+                          setDmsQuery('');
+                          setDmsResults([]);
+                          setDmsShowDropdown(false);
+                          setDmsSelected(null);
+                          const nextDept = departments.find((dd) => dd.id === d.id);
+                          const nextCat =
+                            nextDept?.defaultCategoryId && categories.some((c) => c.id === nextDept.defaultCategoryId)
+                              ? nextDept.defaultCategoryId
+                              : (categories[0]?.id || '');
+                          setSelectedCatId(nextCat);
+                        }}
+                        className={`p-3 rounded-xl text-left border transition-all flex items-center gap-2 ${isSelected
+                          ? 'bg-slate-800 border-sky-500 ring-2 ring-sky-500/20 text-white font-bold'
+                          : 'bg-slate-950/60 border-slate-800 text-slate-400 hover:border-slate-700'
+                          }`}
                       >
                         <div
                           className="w-3 h-3 rounded-full flex-shrink-0"
@@ -468,14 +552,17 @@ export default function OrderFormAndList({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">
-                  Nr Rejestracyjny *
+                  Nr Rejestracyjny lub VIN/KOMIS *
                 </label>
                 <input
                   type="text"
                   required
-                  placeholder="np. KR 8923A"
+                  placeholder="np. ZK 123GS"
                   value={licensePlate}
-                  onChange={(e) => setLicensePlate(e.target.value.toUpperCase())}
+                  onChange={(e) => {
+                    setLicensePlate(e.target.value.toUpperCase());
+                    if (dmsSelected) setDmsSelected(null);
+                  }}
                   className="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-800 text-white font-mono text-base font-bold tracking-wider placeholder:text-slate-600 focus:outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-500/20 uppercase"
                 />
               </div>
@@ -494,6 +581,108 @@ export default function OrderFormAndList({
               </div>
             </div>
 
+            {/* DMS Vehicle Picker */}
+            {dmsEnabled && (
+              <div className="rounded-2xl border border-violet-500/30 bg-slate-950/60 p-4 space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  <label className="block text-xs font-bold uppercase tracking-wider text-violet-300 flex items-center gap-1.5">
+                    <Database className="w-3.5 h-3.5" />
+                    Wybierz pojazd z DMS ({dmsServiceCode})
+                  </label>
+                  <div className="flex items-center gap-2">
+                    {dmsStatus && dmsStatus.fileUpdatedAt && (
+                      <span className={`text-[10px] font-semibold ${dmsStatus.stale ? 'text-amber-400' : 'text-slate-400'}`}>
+                        {dmsStatus.stale ? '⚠ nieświeże' : '✓ dane z'}{' '}
+                        {new Date(dmsStatus.fileUpdatedAt).toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={handleDmsRefresh}
+                      disabled={dmsSearching}
+                      className="text-[10px] px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-violet-300 font-bold flex items-center gap-1 disabled:opacity-50"
+                    >
+                      <RefreshCw className={`w-3 h-3 ${dmsSearching ? 'animate-spin' : ''}`} />
+                      Odśwież
+                    </button>
+                  </div>
+                </div>
+
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={dmsQuery}
+                    onChange={(e) => {
+                      setDmsQuery(e.target.value);
+                      setDmsShowDropdown(false);
+                    }}
+                    onFocus={() => {
+                      if (dmsResults.length > 0) setDmsShowDropdown(true);
+                    }}
+                    placeholder="Wpisz ≥3 znaki rejestracji, nr zlecenia lub VIN…"
+                    className="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-800 text-white text-sm font-mono placeholder:text-slate-600 focus:outline-none focus:border-violet-500"
+                  />
+
+                  {dmsShowDropdown && dmsResults.length > 0 && (
+                    <div className="absolute z-20 left-0 right-0 mt-1 max-h-72 overflow-y-auto rounded-xl border border-slate-700 bg-slate-900 shadow-2xl">
+                      {dmsResults.map((r) => (
+                        <button
+                          key={r.dmsOrderId}
+                          type="button"
+                          onClick={() => pickDms(r)}
+                          className="w-full text-left px-3.5 py-2.5 border-b border-slate-800/70 hover:bg-slate-800/60 transition-colors"
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="font-mono font-black text-sm text-white">
+                              {r.licensePlate || <span className="text-slate-500">— brak rej. —</span>}
+                              {!r.hasPlate && (
+                                <span className="ml-1.5 text-[9px] font-bold text-violet-300 bg-violet-500/15 px-1 py-0.5 rounded uppercase">
+                                  VIN
+                                </span>
+                              )}
+                            </span>
+                            <span className="text-[10px] font-mono text-slate-400">{r.orderNumber}</span>
+                          </div>
+                          <p className="text-xs text-slate-300 truncate">{r.brand} {r.model}</p>
+                          <p className="text-[10px] text-slate-500 truncate">
+                            {r.client || '—'}
+                            {r.openDate ? ` • ${r.openDate}` : ''}
+                            {r.alreadyReported && (
+                              <span className="ml-1.5 text-emerald-400 font-bold">✓ już zgłoszone</span>
+                            )}
+                          </p>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {dmsShowDropdown && dmsResults.length === 0 && dmsQuery.trim().length >= 3 && !dmsSearching && (
+                    <div className="absolute z-20 left-0 right-0 mt-1 rounded-xl border border-slate-700 bg-slate-900 px-3.5 py-2.5 text-xs text-slate-400">
+                      Brak wyników dla: {dmsQuery.trim()}
+                    </div>
+                  )}
+                </div>
+
+                {dmsSelected && (
+                  <div className="flex items-center justify-between gap-2 bg-violet-500/10 border border-violet-500/40 rounded-xl px-3 py-2">
+                    <div className="text-[11px] text-violet-200">
+                      <span className="font-bold">Wybrano z DMS:</span>{' '}
+                      {dmsSelected.dmsOrderNumber || '—'}
+                      {dmsSelected.dmsVin ? ` • VIN ${dmsSelected.dmsVin.slice(0, 8)}…` : ''}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setDmsSelected(null)}
+                      className="text-violet-300 hover:text-white p-1"
+                      title="Wyczyść referencję DMS"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Vehicle Type (Passenger / Delivery) */}
             <div>
               <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">
@@ -503,11 +692,10 @@ export default function OrderFormAndList({
                 <button
                   type="button"
                   onClick={() => setCarType('PASSENGER')}
-                  className={`p-3.5 rounded-xl border flex items-center justify-center gap-2.5 transition-all ${
-                    carType === 'PASSENGER'
-                      ? 'bg-sky-500/15 border-sky-500 text-sky-300 font-bold'
-                      : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
-                  }`}
+                  className={`p-3.5 rounded-xl border flex items-center justify-center gap-2.5 transition-all ${carType === 'PASSENGER'
+                    ? 'bg-sky-500/15 border-sky-500 text-sky-300 font-bold'
+                    : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
+                    }`}
                 >
                   <Car className="w-5 h-5" />
                   <span className="text-xs">Osobowy / SUV (1 stan.)</span>
@@ -516,11 +704,10 @@ export default function OrderFormAndList({
                 <button
                   type="button"
                   onClick={() => setCarType('DELIVERY')}
-                  className={`p-3.5 rounded-xl border flex items-center justify-center gap-2.5 transition-all ${
-                    carType === 'DELIVERY'
-                      ? 'bg-amber-500/15 border-amber-500 text-amber-300 font-bold'
-                      : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
-                  }`}
+                  className={`p-3.5 rounded-xl border flex items-center justify-center gap-2.5 transition-all ${carType === 'DELIVERY'
+                    ? 'bg-amber-500/15 border-amber-500 text-amber-300 font-bold'
+                    : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
+                    }`}
                 >
                   <Truck className="w-5 h-5" />
                   <span className="text-xs">Dostawczy / Bus (1.5 stan.)</span>
@@ -585,11 +772,10 @@ export default function OrderFormAndList({
                         setTargetHour(earliestFeasibleHourToday);
                       }
                     }}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
-                      targetReadyDate === todayStr
-                        ? 'bg-sky-500 text-white shadow'
-                        : 'bg-slate-800 text-slate-400 hover:text-white'
-                    }`}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${targetReadyDate === todayStr
+                      ? 'bg-sky-500 text-white shadow'
+                      : 'bg-slate-800 text-slate-400 hover:text-white'
+                      }`}
                   >
                     Dziś
                   </button>
@@ -600,11 +786,10 @@ export default function OrderFormAndList({
                       setTargetReadyDate(tomorrowStr);
                       setTargetHour('09:00');
                     }}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
-                      targetReadyDate === tomorrowStr
-                        ? 'bg-sky-500 text-white shadow'
-                        : 'bg-slate-800 text-slate-400 hover:text-white'
-                    }`}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${targetReadyDate === tomorrowStr
+                      ? 'bg-sky-500 text-white shadow'
+                      : 'bg-slate-800 text-slate-400 hover:text-white'
+                      }`}
                   >
                     Jutro
                   </button>
@@ -615,11 +800,10 @@ export default function OrderFormAndList({
                       setTargetReadyDate(dayAfterTomorrowStr);
                       setTargetHour('09:00');
                     }}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
-                      targetReadyDate === dayAfterTomorrowStr
-                        ? 'bg-sky-500 text-white shadow'
-                        : 'bg-slate-800 text-slate-400 hover:text-white'
-                    }`}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${targetReadyDate === dayAfterTomorrowStr
+                      ? 'bg-sky-500 text-white shadow'
+                      : 'bg-slate-800 text-slate-400 hover:text-white'
+                      }`}
                   >
                     Pojutrze
                   </button>
@@ -780,12 +964,12 @@ export default function OrderFormAndList({
 
         {/* Live Orders Column */}
         <div className="lg:col-span-7 space-y-4">
-          
+
           {/* Filter Bar */}
           <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex flex-col sm:flex-row items-center justify-between gap-3 shadow">
             <div className="flex items-center gap-2 w-full sm:w-auto">
               <Filter className="w-4 h-4 text-slate-400" />
-              
+
               {!isDeptLocked ? (
                 <select
                   value={filterDept}
@@ -807,11 +991,10 @@ export default function OrderFormAndList({
               {completedCount > 0 && (
                 <button
                   onClick={() => setShowCompleted(!showCompleted)}
-                  className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors ${
-                    showCompleted
-                      ? 'bg-slate-700 text-white'
-                      : 'bg-slate-800/80 text-slate-400 hover:text-slate-200'
-                  }`}
+                  className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors ${showCompleted
+                    ? 'bg-slate-700 text-white'
+                    : 'bg-slate-800/80 text-slate-400 hover:text-slate-200'
+                    }`}
                   title="Wydane auta są domyślnie ukryte"
                 >
                   {showCompleted ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
@@ -857,13 +1040,12 @@ export default function OrderFormAndList({
                 return (
                   <div
                     key={order.id}
-                    className={`rounded-2xl p-5 border transition-all relative overflow-hidden ${
-                      isReady
-                        ? 'bg-gradient-to-r from-emerald-950/80 to-slate-900 border-emerald-500/60 shadow-lg shadow-emerald-500/10'
-                        : isInProgress
+                    className={`rounded-2xl p-5 border transition-all relative overflow-hidden ${isReady
+                      ? 'bg-gradient-to-r from-emerald-950/80 to-slate-900 border-emerald-500/60 shadow-lg shadow-emerald-500/10'
+                      : isInProgress
                         ? 'bg-gradient-to-r from-amber-950/60 to-slate-900 border-amber-500/50 shadow-lg shadow-amber-500/10'
                         : 'bg-slate-900 border-slate-800 hover:border-slate-700'
-                    }`}
+                      }`}
                   >
                     {/* Top Row: Plate + Badges */}
                     <div className="flex items-start justify-between gap-2 mb-3">
@@ -875,7 +1057,7 @@ export default function OrderFormAndList({
                           <p className="font-bold text-sm text-slate-200">
                             {order.carModel || 'Pojazd salonowy'}
                           </p>
-                          <span 
+                          <span
                             className="inline-block text-[10px] font-black px-2 py-0.5 rounded text-white mt-0.5"
                             style={{ backgroundColor: order.department?.color || '#3b82f6' }}
                           >
@@ -888,21 +1070,21 @@ export default function OrderFormAndList({
                     </div>
 
                     {/* Delay Warning Notification */}
-                    {order.scheduledStartTime && 
-                      (new Date(order.scheduledStartTime).getTime() + (order.durationMin || 30) * 60000) > new Date(order.targetReadyTime).getTime() && 
+                    {order.scheduledStartTime &&
+                      (new Date(order.scheduledStartTime).getTime() + (order.durationMin || 30) * 60000) > new Date(order.targetReadyTime).getTime() &&
                       order.status !== 'COMPLETED' && (
-                      <div className="mb-3 p-3 rounded-xl bg-rose-950/80 border border-rose-500 text-rose-200 text-xs font-bold flex items-start gap-2 shadow-lg animate-pulse">
-                        <AlertTriangle className="w-4 h-4 text-rose-400 flex-shrink-0 mt-0.5" />
-                        <div>
-                          <span className="text-rose-300 block font-black uppercase">
-                            ⚠️ Uwaga: data mycia późniejsza niż data wydania!
-                          </span>
-                          <span className="text-[11px] text-rose-200 font-normal block mt-0.5">
-                            Myjnia zaplanowała start na: <strong>{format(new Date(order.scheduledStartTime), 'd MMM HH:mm', { locale: pl })}</strong> (wnioskowano gotowość na: <strong>{format(new Date(order.targetReadyTime), 'd MMM HH:mm', { locale: pl })}</strong>).
-                          </span>
+                        <div className="mb-3 p-3 rounded-xl bg-rose-950/80 border border-rose-500 text-rose-200 text-xs font-bold flex items-start gap-2 shadow-lg animate-pulse">
+                          <AlertTriangle className="w-4 h-4 text-rose-400 flex-shrink-0 mt-0.5" />
+                          <div>
+                            <span className="text-rose-300 block font-black uppercase">
+                              ⚠️ Uwaga: data mycia późniejsza niż data wydania!
+                            </span>
+                            <span className="text-[11px] text-rose-200 font-normal block mt-0.5">
+                              Myjnia zaplanowała start na: <strong>{format(new Date(order.scheduledStartTime), 'd MMM HH:mm', { locale: pl })}</strong> (wnioskowano gotowość na: <strong>{format(new Date(order.targetReadyTime), 'd MMM HH:mm', { locale: pl })}</strong>).
+                            </span>
+                          </div>
                         </div>
-                      </div>
-                    )}
+                      )}
 
                     {/* Middle Row: Category + Times */}
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 bg-slate-950/60 p-3 rounded-xl border border-slate-800/80 text-xs mb-3">
