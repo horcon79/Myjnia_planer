@@ -17,6 +17,7 @@ export interface ReportRow {
   color: string;
   count: number;
   totalDurationMin: number;
+  enteredByWashCount: number;
 }
 
 export interface WashReport {
@@ -26,6 +27,7 @@ export interface WashReport {
   departments: ReportRow[];
   totalCount: number;
   totalDurationMin: number;
+  enteredByWashCount: number;
 }
 
 function dateInRange(date: Date | null, from: Date, to: Date): boolean {
@@ -63,10 +65,12 @@ export async function getWashReport(dateFrom: string, dateTo: string): Promise<{
 
     let totalCount = 0;
     let totalDurationMin = 0;
+    let enteredByWashCount = 0;
 
     for (const o of inRange) {
       totalCount += 1;
       totalDurationMin += o.durationMin || 0;
+      if (o.enteredByWash) enteredByWashCount += 1;
 
       const empId = o.assignedEmployeeId || EMPTY_EMP_ID;
       if (!empMap.has(empId)) {
@@ -77,11 +81,13 @@ export async function getWashReport(dateFrom: string, dateTo: string): Promise<{
           color: o.assignedEmployee?.color || '#64748b',
           count: 0,
           totalDurationMin: 0,
+          enteredByWashCount: 0,
         });
       }
       const empRow = empMap.get(empId)!;
       empRow.count += 1;
       empRow.totalDurationMin += o.durationMin || 0;
+      if (o.enteredByWash) empRow.enteredByWashCount += 1;
 
       const deptId = o.departmentId || EMPTY_DEPT_ID;
       if (!deptMap.has(deptId)) {
@@ -92,11 +98,13 @@ export async function getWashReport(dateFrom: string, dateTo: string): Promise<{
           color: o.department?.color || '#64748b',
           count: 0,
           totalDurationMin: 0,
+          enteredByWashCount: 0,
         });
       }
       const deptRow = deptMap.get(deptId)!;
       deptRow.count += 1;
       deptRow.totalDurationMin += o.durationMin || 0;
+      if (o.enteredByWash) deptRow.enteredByWashCount += 1;
     }
 
     const sortByCountDesc = (a: ReportRow, b: ReportRow) => b.count - a.count || b.totalDurationMin - a.totalDurationMin;
@@ -113,6 +121,7 @@ export async function getWashReport(dateFrom: string, dateTo: string): Promise<{
         departments,
         totalCount,
         totalDurationMin,
+        enteredByWashCount,
       },
     };
   } catch (error) {

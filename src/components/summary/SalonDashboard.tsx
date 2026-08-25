@@ -156,12 +156,19 @@ export default function SalonDashboard({
                     <span className="font-mono font-black text-xl text-white tracking-wider bg-black/60 px-3 py-1 rounded-xl border border-emerald-500/30">
                       {ord.licensePlate}
                     </span>
-                    <span
-                      className="text-[10px] font-black px-2 py-0.5 rounded text-white"
-                      style={{ backgroundColor: ord.department?.color }}
-                    >
-                      {ord.department?.code}
-                    </span>
+                    <div className="flex items-center gap-1.5">
+                      {ord.enteredByWash && (
+                        <span className="text-[9px] font-black px-1.5 py-0.5 rounded bg-violet-500 text-white uppercase" title="Wprowadzone ręcznie przez myjnię (bez planowania działu)">
+                          Wpis myjni
+                        </span>
+                      )}
+                      <span
+                        className="text-[10px] font-black px-2 py-0.5 rounded text-white"
+                        style={{ backgroundColor: ord.department?.color }}
+                      >
+                        {ord.department?.code}
+                      </span>
+                    </div>
                   </div>
 
                   <p className="font-bold text-sm text-slate-100 mb-1">
@@ -221,12 +228,19 @@ export default function SalonDashboard({
                     <span className="font-mono font-black text-lg text-white tracking-wider bg-black/60 px-2.5 py-1 rounded-xl border border-amber-500/30">
                       {ord.licensePlate}
                     </span>
-                    <span
-                      className="text-[10px] font-black px-2 py-0.5 rounded text-white"
-                      style={{ backgroundColor: ord.department?.color }}
-                    >
-                      {ord.department?.name}
-                    </span>
+                    <div className="flex items-center gap-1.5">
+                      {ord.enteredByWash && (
+                        <span className="text-[9px] font-black px-1.5 py-0.5 rounded bg-violet-500 text-white uppercase" title="Wprowadzone ręcznie przez myjnię (bez planowania działu)">
+                          Wpis myjni
+                        </span>
+                      )}
+                      <span
+                        className="text-[10px] font-black px-2 py-0.5 rounded text-white"
+                        style={{ backgroundColor: ord.department?.color }}
+                      >
+                        {ord.department?.name}
+                      </span>
+                    </div>
                   </div>
 
                   {/* Delay Warning Notification on TV Dashboard */}
@@ -295,12 +309,19 @@ export default function SalonDashboard({
                     <span className="font-mono font-black text-base text-white tracking-wider bg-slate-900 px-2.5 py-0.5 rounded-lg border border-slate-800">
                       {ord.licensePlate}
                     </span>
-                    <span
-                      className="text-[10px] font-black px-2 py-0.5 rounded text-white"
-                      style={{ backgroundColor: ord.department?.color }}
-                    >
-                      {ord.department?.code}
-                    </span>
+                    <div className="flex items-center gap-1.5">
+                      {ord.enteredByWash && (
+                        <span className="text-[9px] font-black px-1.5 py-0.5 rounded bg-violet-500 text-white uppercase" title="Wprowadzone ręcznie przez myjnię (bez planowania działu)">
+                          Wpis myjni
+                        </span>
+                      )}
+                      <span
+                        className="text-[10px] font-black px-2 py-0.5 rounded text-white"
+                        style={{ backgroundColor: ord.department?.color }}
+                      >
+                        {ord.department?.code}
+                      </span>
+                    </div>
                   </div>
 
                   {/* Delay Warning Notification on TV Dashboard */}

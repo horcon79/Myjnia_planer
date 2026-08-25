@@ -71,6 +71,7 @@ model WashOrder {
   
   status              String       @default("PLANNED") // "PLANNED" (Zaplanowane / W kolejce) | "IN_PROGRESS" (W trakcie mycia) | "READY" (Gotowe do odbioru) | "COMPLETED" (Wydane / Odebrane) | "CANCELLED"
   isOverCapacity      Boolean      @default(false) // Czy dodano jako override ponad limit
+  enteredByWash       Boolean      @default(false) // Czy auto wprowadził sam myjkowy (bez wcześniejszego planowania przez dział)
   notes               String?      // Uwagi do zlecenia
   contactPerson       String?      // Np. "Tomasz (Handlowy)" lub tel.
   

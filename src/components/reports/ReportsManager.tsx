@@ -15,6 +15,7 @@ import {
   AlertTriangle,
   Sparkles,
   Clock,
+  UserPlus,
 } from 'lucide-react';
 
 const presetPresets = [
@@ -141,11 +142,13 @@ export default function ReportsManager() {
       dept.count,
       formatDuration(dept.totalDurationMin),
       report.totalCount > 0 ? `${((dept.count / report.totalCount) * 100).toFixed(1)}%` : '0%',
+      dept.enteredByWashCount,
+      dept.count > 0 ? `${((dept.enteredByWashCount / dept.count) * 100).toFixed(1)}%` : '0%',
     ]);
     exportTableToExcel(
       `raport_dzialy_${report.dateFrom}_${report.dateTo}.xls`,
       'Ilość myć wg działów',
-      ['Dział', 'Kod', 'Liczba myć', 'Czas łączny', 'Udział %'],
+      ['Dział', 'Kod', 'Liczba myć', 'Czas łączny', 'Udział %', 'Wprowadzone przez myjnię', 'Wpisy myjni %'],
       rows
     );
   };
@@ -268,7 +271,7 @@ export default function ReportsManager() {
       {report && !isLoading && (
         <>
           {/* Summary tiles */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl flex items-center gap-4">
               <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center">
                 <Sparkles className="w-6 h-6" />
@@ -285,6 +288,25 @@ export default function ReportsManager() {
               <div>
                 <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Łączny czas mycia</p>
                 <p className="text-2xl font-black text-white">{formatDuration(report.totalDurationMin)}</p>
+              </div>
+            </div>
+            <div className="bg-slate-900 border border-violet-500/40 rounded-3xl p-5 shadow-xl flex items-center gap-4">
+              <div className="w-12 h-12 rounded-2xl bg-violet-500/10 text-violet-400 flex items-center justify-center">
+                <UserPlus className="w-6 h-6" />
+              </div>
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                  Wprowadzone przez myjnię
+                  <span className="block text-[9px] text-violet-300/80 normal-case font-semibold" title="Auta wpisane ręcznie przez myjnię — bez wcześniejszego planowania przez dział">
+                    mycia poza planem działów
+                  </span>
+                </p>
+                <p className="text-2xl font-black text-white">
+                  {report.enteredByWashCount}
+                  <span className="text-sm font-bold text-violet-300 ml-1.5">
+                    {report.totalCount > 0 ? `(${((report.enteredByWashCount / report.totalCount) * 100).toFixed(1)}%)` : ''}
+                  </span>
+                </p>
               </div>
             </div>
             <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 shadow-xl flex items-center gap-4">
@@ -394,13 +416,16 @@ export default function ReportsManager() {
                     <th className="py-2.5 pr-3 font-bold">Dział</th>
                     <th className="py-2.5 pr-3 font-bold text-right">Liczba myć</th>
                     <th className="py-2.5 pr-3 font-bold text-right">Czas łączny</th>
+                    <th className="py-2.5 pr-3 font-bold text-right" title="Auta wpisane ręcznie przez myjnię — bez planowania działu">
+                      Wpisy myjni
+                    </th>
                     <th className="py-2.5 font-bold text-right">Udział</th>
                   </tr>
                 </thead>
                 <tbody>
                   {report.departments.length === 0 && (
                     <tr>
-                      <td colSpan={4} className="py-8 text-center text-slate-500">
+                      <td colSpan={5} className="py-8 text-center text-slate-500">
                         Brak myć w wybranym okresie.
                       </td>
                     </tr>
@@ -422,6 +447,19 @@ export default function ReportsManager() {
                         <span className="font-mono font-black text-amber-400">{dept.count}</span>
                       </td>
                       <td className="py-3 pr-3 text-right text-slate-300 text-xs">{formatDuration(dept.totalDurationMin)}</td>
+                      <td className="py-3 pr-3 text-right">
+                        {dept.enteredByWashCount > 0 ? (
+                          <span className="inline-flex items-center gap-1.5 font-mono font-black text-violet-400" title="Liczba aut wprowadzonych ręcznie przez myjnię">
+                            <UserPlus className="w-3.5 h-3.5" />
+                            {dept.enteredByWashCount}
+                            <span className="text-[10px] font-bold text-violet-300/70">
+                              ({dept.count > 0 ? `${((dept.enteredByWashCount / dept.count) * 100).toFixed(0)}%` : '0%'})
+                            </span>
+                          </span>
+                        ) : (
+                          <span className="text-[11px] text-slate-500 font-bold">0</span>
+                        )}
+                      </td>
                       <td className="py-3 text-right">
                         <span className="text-xs font-bold text-slate-300">
                           {report.totalCount > 0 ? `${((dept.count / report.totalCount) * 100).toFixed(1)}%` : '0%'}

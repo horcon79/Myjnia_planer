@@ -14,6 +14,7 @@ export interface CreateOrderInput {
   contactPerson?: string;
   scheduledStartTime?: string; // Optional direct slot
   assignedEmployeeId?: string;
+  enteredByWash?: boolean; // Wprowadzone ręcznie przez myjnię (bez planowania działu)
 }
 
 export async function getOrdersForDate(dateStr: string) {
@@ -128,6 +129,7 @@ export async function createOrder(input: CreateOrderInput) {
         durationMin,
         assignedEmployeeId: input.assignedEmployeeId || null,
         status: scheduledStart ? 'PLANNED' : 'PLANNED',
+        enteredByWash: input.enteredByWash ?? false,
         notes: input.notes?.trim() || null,
         contactPerson: input.contactPerson?.trim() || null,
       },

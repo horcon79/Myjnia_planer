@@ -36,7 +36,8 @@ import {
   AlertOctagon,
   CalendarClock,
   Move,
-  FileText
+  FileText,
+  UserPlus
 } from 'lucide-react';
 import { format, addDays, subDays } from 'date-fns';
 import { pl } from 'date-fns/locale';
@@ -1252,6 +1253,14 @@ export default function PlannerBoard({
                               >
                                 {ord.department?.code}
                               </span>
+                              {ord.enteredByWash && (
+                                <span
+                                  className="text-violet-300 flex-shrink-0"
+                                  title="Wprowadzone ręcznie przez myjnię (bez planowania działu)"
+                                >
+                                  <UserPlus className="w-2.5 h-2.5" />
+                                </span>
+                              )}
                             </div>
                             <div className="flex items-center justify-between text-[9px]">
                               <span className="font-bold text-sky-300 truncate">
@@ -1336,6 +1345,12 @@ export default function PlannerBoard({
                           </div>
 
                           <div className="flex items-center gap-1">
+                            {ord.enteredByWash && (
+                              <span className="text-[8px] font-black px-1.5 py-0.5 rounded bg-violet-500 text-white uppercase flex items-center gap-0.5 shadow" title="Auto wprowadzone ręcznie przez myjnię (dział nie zaplanował mycia)">
+                                <UserPlus className="w-2.5 h-2.5" />
+                                WPIS MYJNI
+                              </span>
+                            )}
                             {ord.isOverCapacity && (
                               <span className="text-[8px] font-black px-1.5 py-0.5 rounded bg-rose-500 text-white uppercase" title="Dodano ponad limit">
                                 +OVER
@@ -1972,6 +1987,13 @@ export default function PlannerBoard({
               </button>
             </div>
 
+            <div className="mb-4 px-3.5 py-2.5 rounded-xl bg-violet-500/10 border border-violet-500/40 text-[11px] text-violet-200 flex items-start gap-2">
+              <UserPlus className="w-3.5 h-3.5 text-violet-400 flex-shrink-0 mt-0.5" />
+              <span>
+                Zlecenie zostanie oznaczone jako <strong>wprowadzone przez myjnię</strong> — trafi do raportu myć niezaplanowanych przez dział zamawiający.
+              </span>
+            </div>
+
             <form
               onSubmit={async (e) => {
                 e.preventDefault();
@@ -1998,6 +2020,7 @@ export default function PlannerBoard({
                   targetReadyTime: targetDate.toISOString(),
                   scheduledStartTime: startDate.toISOString(),
                   assignedEmployeeId: empId,
+                  enteredByWash: true,
                 });
 
                 setQuickAddPrefill(null);
