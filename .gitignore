@@ -58,3 +58,6 @@ Desktop.ini
 .vercel/
 .turbo/
 .eslintcache
+# == zmienne DMS ==
+.env
+/DMS
