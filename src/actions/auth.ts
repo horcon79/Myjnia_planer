@@ -1,6 +1,6 @@
 'use server';
 
-import { cookies } from 'next/headers';
+import { cookies, headers } from 'next/headers';
 import { prisma } from '@/lib/prisma';
 import { revalidatePath } from 'next/cache';
 
@@ -39,9 +39,15 @@ export async function loginWithPin(slug: string, pin: string): Promise<{ success
     };
 
     const cookieStore = await cookies();
+    const headerList = await headers();
+    // Cookie Secure tylko, gdy faktycznie mamy HTTPS (bezpośrednio lub za proxy).
+    // Przy zwykłym HTTP (np. wdrożenie Docker na intranecie) przeglądarka odrzuciłaby cookie z flagą Secure.
+    const proto = (headerList.get('x-forwarded-proto') || '').split(',').map((p) => p.trim());
+    const isHttps = proto.includes('https');
+    const forceSecure = process.env.COOKIE_SECURE === 'true';
     cookieStore.set('myjnia_session', JSON.stringify(sessionData), {
       httpOnly: false,
-      secure: process.env.NODE_ENV === 'production',
+      secure: forceSecure || isHttps,
       sameSite: 'lax',
       maxAge: 60 * 60 * 24 * 30, // 30 dni
       path: '/',

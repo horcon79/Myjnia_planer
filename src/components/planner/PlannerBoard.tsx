@@ -111,6 +111,11 @@ export default function PlannerBoard({
   const workStartHour = parseInt(settings.WORK_START_HOUR || '7', 10);
   const workEndHour = parseInt(settings.WORK_END_HOUR || '18', 10);
 
+  // Timeline geometry: fixed slot height + gap so absolute card positioning aligns with slot cells
+  const SLOT_HEIGHT = 74;
+  const SLOT_GAP = 8;
+  const SLOT_STEP = SLOT_HEIGHT + SLOT_GAP;
+
   // Shift length limits: standard 8h shift, auto-deactivate after 9h
   const STANDARD_SHIFT_MS = 8 * 60 * 60 * 1000;
   const AUTO_DEACTIVATE_MS = 9 * 60 * 60 * 1000;
@@ -223,14 +228,18 @@ export default function PlannerBoard({
 
   const scrollToCurrentTime = (smooth: boolean = true) => {
     if (!isToday) return;
+    const scroller = timelineScrollRef.current;
+    if (!scroller) return;
     const currentSlot = getCurrentSlotString();
     const targetElement = document.getElementById(`slot-row-${currentSlot}`);
-    if (targetElement && timelineScrollRef.current) {
-      targetElement.scrollIntoView({
-        behavior: smooth ? 'smooth' : 'auto',
-        block: 'center',
-      });
-    }
+    if (!targetElement) return;
+
+    // Pozycjonujemy bieżący slot tak, aby domyślnie widoczny był zakres ~ -2h .. +2h.
+    const scrollerRect = scroller.getBoundingClientRect();
+    const elRect = targetElement.getBoundingClientRect();
+    const relativeTop = elRect.top - scrollerRect.top + scroller.scrollTop;
+    const offset = Math.max(0, relativeTop - 4 * SLOT_STEP - 12);
+    scroller.scrollTo({ top: offset, behavior: smooth ? 'smooth' : 'auto' });
   };
 
   // Scroll to current hour on initial load
@@ -623,9 +632,6 @@ export default function PlannerBoard({
   const gridTemplate = `75px repeat(${activeEmployees.length}, minmax(${columnMinWidth}, 1fr))`;
 
   // Timeline geometry: fixed slot height + gap so absolute card positioning aligns with slot cells
-  const SLOT_HEIGHT = 58;
-  const SLOT_GAP = 8;
-  const SLOT_STEP = SLOT_HEIGHT + SLOT_GAP;
   const columnHeight = timeSlots.length * SLOT_STEP - SLOT_GAP;
 
   // Card layouts: for each employee, orders spanning their duration + overlap lanes (columns)

@@ -61,7 +61,9 @@ Desktop.ini
 # == zmienne DMS ==
 .env
 /DMS
-
+/.playwright-mcp
 # == dane synchronizacji z DMS (dane osobowe) ==
 /zlecenia_sync
 /zlecenia_sync
+
+
