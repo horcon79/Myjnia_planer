@@ -1,8 +1,10 @@
 # Dealer Myjnia Planer
 
-Wewnętrzny system do zarządzania i planowania prac myjni samochodowej w firmie (dealer samochodowy, firma transportowa, serwis lub flota). Aplikacja przeznaczona do użytku na tablecie przy myjni oraz na komputerach działów zamawiających.
+Source-available system do zarządzania i planowania prac myjni samochodowej w firmie (dealer samochodowy, firma transportowa, serwis lub flota). Aplikacja przeznaczona do użytku na tablecie przy myjni oraz na komputerach działów zamawiających.
 
 System pozwala działom zgłaszać mycia, pracownikom myjni planować je w grafiku, a kierownikowi kontrolować przepustowość i rozliczać wykonaną pracę.
+
+> **Licencja:** kod źródłowy jest dostępny na zasadach **PolyForm Noncommercial License 1.0.0**. Użycie niekomercyjne, testowanie i ocena rozwiązania są dozwolone w zakresie tej licencji. **Użycie produkcyjne w działalności gospodarczej wymaga odrębnej licencji komercyjnej.** Szczegóły: [COMMERCIAL_LICENSE.md](COMMERCIAL_LICENSE.md).
 
 ---
 
@@ -57,6 +59,8 @@ npm run dev
 ```
 
 Otwórz <http://localhost:3000>. Po stronie głównej wybierz profil i zaloguj się kodem PIN.
+
+> Uruchomienie aplikacji w celu testów lub oceny nie oznacza automatycznie prawa do jej komercyjnego wykorzystania. Przed wdrożeniem produkcyjnym w firmie zapoznaj się z sekcją **Licencja** poniżej.
 
 ## Wdrożenie z Docker (produkcja / testy)
 
@@ -157,4 +161,16 @@ Ustawienia systemowe są przechowywane w bazie (model `AppSetting`) i edytowalne
 
 ## Licencja
 
-Projekt wewnętrzny — nie przeznaczony do dystrybucji. Potrzebujesz licencji napisz <horcon.koszalin@gmail.com>
+Myjnia Planer jest projektem **source-available**, a nie klasycznym projektem open-source.
+
+Kod źródłowy jest udostępniany na licencji **PolyForm Noncommercial License 1.0.0** — zobacz [LICENSE](LICENSE).
+
+W uproszczeniu:
+
+- **bezpłatnie:** zastosowania niekomercyjne dozwolone przez PolyForm, w tym testowanie, nauka, badania i ocena rozwiązania,
+- **licencja komercyjna wymagana:** produkcyjne wykorzystanie aplikacji w działalności gospodarczej, w tym przez dealerów samochodowych, serwisy, floty, firmy transportowe, wypożyczalnie, myjnie komercyjne, integratorów i dostawców SaaS,
+- **warunki komercyjne:** zobacz [COMMERCIAL_LICENSE.md](COMMERCIAL_LICENSE.md).
+
+Publiczna dostępność repozytorium nie oznacza zgody na bezpłatne komercyjne wykorzystanie aplikacji.
+
+Kontakt w sprawie licencji, wdrożeń i współpracy: **horcon.koszalin@gmail.com**
