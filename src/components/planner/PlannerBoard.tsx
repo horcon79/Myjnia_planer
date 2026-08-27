@@ -64,7 +64,10 @@ export default function PlannerBoard({
   const [isLoading, setIsLoading] = useState(true);
 
   // Active employees on shift (persisted in localStorage / session)
-  const [activeEmpIds, setActiveEmpIds] = useState<string[]>(employees.map(e => e.id));
+  const [activeEmpIds, setActiveEmpIds] = useState<string[]>([]);
+  // Daily shift start modal
+  const [showShiftStartModal, setShowShiftStartModal] = useState(false);
+  const [shiftSelectionIds, setShiftSelectionIds] = useState<string[]>([]);
 
   // Shift start timestamps (ms epoch) per employee – used for auto-deactivation & elapsed time
   const [shiftStartTimes, setShiftStartTimes] = useState<Record<string, number>>({});
@@ -193,8 +196,10 @@ export default function PlannerBoard({
     return () => clearInterval(interval);
   }, [currentDate]);
 
-  // Load saved shift staff on mount
-  // Load shift staff + start times for the CURRENT viewed day (per-day roster)
+  // Auto-scroll to current hour when date is today
+  const isToday = currentDate === format(new Date(), 'yyyy-MM-dd');
+
+  // Load saved shift staff on mount / date change (per-day roster)
   useEffect(() => {
     try {
       const saved = localStorage.getItem(`myjnia_shift_employees_${currentDate}`);
@@ -205,8 +210,13 @@ export default function PlannerBoard({
           setActiveEmpIds(validIds);
         }
       } else {
-        // No shift configured for this day → default: everyone is available
-        setActiveEmpIds(employees.map(e => e.id));
+        // No shift configured for this day yet → default: no one selected
+        setActiveEmpIds([]);
+        // If viewing today and no shift has been chosen, prompt shift start modal
+        if (isToday) {
+          setShiftSelectionIds([]);
+          setShowShiftStartModal(true);
+        }
       }
 
       const savedTimes = localStorage.getItem(`myjnia_shift_times_${currentDate}`);
@@ -221,10 +231,7 @@ export default function PlannerBoard({
     } catch (e) {
       console.error(e);
     }
-  }, [employees, currentDate]);
-
-  // Auto-scroll to current hour when date is today
-  const isToday = currentDate === format(new Date(), 'yyyy-MM-dd');
+  }, [employees, currentDate, isToday]);
 
   const scrollToCurrentTime = (smooth: boolean = true) => {
     if (!isToday) return;
@@ -340,6 +347,64 @@ export default function PlannerBoard({
     }
 
     setShiftConfirmEmp(null);
+  };
+
+  // Multi-select shift modal handlers
+  const openShiftStartModal = () => {
+    setShiftSelectionIds([...activeEmpIds]);
+    setShowShiftStartModal(true);
+  };
+
+  const toggleShiftSelection = (empId: string) => {
+    setShiftSelectionIds(prev =>
+      prev.includes(empId) ? prev.filter(id => id !== empId) : [...prev, empId]
+    );
+  };
+
+  const selectAllShiftSelection = () => {
+    setShiftSelectionIds(employees.map(e => e.id));
+  };
+
+  const clearShiftSelection = () => {
+    setShiftSelectionIds([]);
+  };
+
+  const handleSaveShiftModal = () => {
+    const nextActive = shiftSelectionIds;
+    setActiveEmpIds(nextActive);
+
+    const now = Date.now();
+    setShiftStartTimes(prev => {
+      const nextTimes: Record<string, number> = { ...prev };
+      // add newly activated employees
+      nextActive.forEach(id => {
+        if (!nextTimes[id]) {
+          nextTimes[id] = now;
+        }
+      });
+      // remove deactivated employees
+      Object.keys(nextTimes).forEach(id => {
+        if (!nextActive.includes(id)) {
+          delete nextTimes[id];
+        }
+      });
+
+      try {
+        localStorage.setItem(`myjnia_shift_employees_${currentDate}`, JSON.stringify(nextActive));
+        localStorage.setItem(`myjnia_shift_times_${currentDate}`, JSON.stringify(nextTimes));
+      } catch (e) {
+        console.error(e);
+      }
+      return nextTimes;
+    });
+
+    try {
+      localStorage.setItem(`myjnia_shift_employees_${currentDate}`, JSON.stringify(nextActive));
+    } catch (e) {
+      console.error(e);
+    }
+
+    setShowShiftStartModal(false);
   };
 
   // Helpers for shift display
@@ -776,10 +841,15 @@ export default function PlannerBoard({
 
         {/* Shift Staff Selector (Up to 5 employees) */}
         <div className="flex items-center gap-1.5 flex-wrap">
-          <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1 mr-1">
-            <Users className="w-3.5 h-3.5 text-sky-400" />
-            Zmiana ({activeEmployees.length}):
-          </span>
+          <button
+            onClick={openShiftStartModal}
+            className="text-[11px] font-bold text-slate-400 hover:text-sky-300 uppercase tracking-wider flex items-center gap-1 mr-1 px-2.5 py-1.5 rounded-xl bg-slate-950/80 hover:bg-slate-800 border border-slate-800 transition-all group"
+            title="Kliknij, aby zarządzać składem zmiany"
+          >
+            <Users className="w-3.5 h-3.5 text-sky-400 group-hover:scale-110 transition-transform" />
+            <span>Zmiana ({activeEmployees.length}):</span>
+            <UserPlus className="w-3 h-3 text-sky-400 ml-0.5" />
+          </button>
           {employees.map((emp) => {
             const isActive = activeEmpIds.includes(emp.id);
             const overShift = isActive && isOverShift(emp.id);
@@ -793,8 +863,9 @@ export default function PlannerBoard({
                     ? overShift
                       ? 'bg-amber-950/80 border-amber-500 text-amber-200 shadow'
                       : 'bg-slate-800 border-sky-500 text-white shadow'
-                    : 'bg-slate-950/60 border-slate-800 text-slate-500 hover:text-slate-300'
+                    : 'bg-slate-950/60 border-slate-800 text-slate-500 hover:text-slate-300 hover:border-slate-700'
                 }`}
+                title={isActive ? `Zakończ zmianę (${emp.name})` : `Rozpocznij zmianę dla: ${emp.name}`}
               >
                 <div
                   className="w-2.5 h-2.5 rounded-full flex-shrink-0"
@@ -1045,10 +1116,21 @@ export default function PlannerBoard({
           </span>
         </div>
         {activeEmployees.length === 0 ? (
-          <div className="p-16 text-center text-slate-500">
-            <Users className="w-12 h-12 mx-auto mb-3 text-slate-600" />
-            <h3 className="text-lg font-bold text-white">Brak aktywnych pracowników na zmianie</h3>
-            <p className="text-xs text-slate-400 mt-1">Wybierz pracowników na pasku powyżej, aby zobaczyć grafik (do 5 osób).</p>
+          <div className="py-20 px-6 text-center flex flex-col items-center justify-center">
+            <div className="w-16 h-16 rounded-3xl bg-sky-500/10 border border-sky-500/20 flex items-center justify-center mb-4 text-sky-400 shadow-inner">
+              <Users className="w-8 h-8" />
+            </div>
+            <h3 className="text-xl font-extrabold text-white">Brak aktywnych pracowników na zmianie</h3>
+            <p className="text-xs sm:text-sm text-slate-400 mt-2 max-w-md mx-auto">
+              Żaden pracownik nie został jeszcze zarejestrowany na dzisiejszą zmianę. Kliknij poniższy przycisk, aby wybrać obecnych pracowników i rozpocząć pracę w planerze.
+            </p>
+            <button
+              onClick={openShiftStartModal}
+              className="mt-6 px-6 py-3.5 rounded-2xl bg-sky-500 hover:bg-sky-400 text-white font-extrabold text-sm shadow-xl shadow-sky-500/25 transition-all flex items-center gap-2"
+            >
+              <UserPlus className="w-4 h-4" />
+              <span>Wybierz pracowników i rozpocznij zmianę</span>
+            </button>
           </div>
         ) : (
           <div className="min-w-full">
@@ -2204,6 +2286,118 @@ export default function PlannerBoard({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Daily Shift Start / Worker Selection Modal */}
+      {showShiftStartModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-slate-900 border-2 border-slate-700 rounded-3xl p-5 sm:p-7 w-full max-w-2xl shadow-2xl space-y-6 relative animate-in fade-in zoom-in duration-150">
+            <button
+              onClick={() => setShowShiftStartModal(false)}
+              className="absolute top-5 right-5 p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            {/* Modal Header */}
+            <div>
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-lg bg-sky-500/10 border border-sky-500/20 text-sky-400 text-xs font-bold mb-2">
+                <Users className="w-3.5 h-3.5" />
+                <span>Obsada Zmiany • {format(new Date(currentDate), 'd MMMM yyyy', { locale: pl })}</span>
+              </div>
+              <h2 className="text-xl sm:text-2xl font-black text-white">
+                Rozpoczęcie zmiany w planerze
+              </h2>
+              <p className="text-xs sm:text-sm text-slate-400 mt-1">
+                Kto stawił się dzisiaj do pracy na myjni? Zaznacz obecnych pracowników, aby uruchomić kolumny i planowanie:
+              </p>
+            </div>
+
+            {/* Quick Actions */}
+            <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-800">
+              <span className="text-xs font-bold text-slate-400">
+                Zaznaczono: <strong className="text-sky-400 font-mono text-sm">{shiftSelectionIds.length}</strong> / {employees.length}
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={selectAllShiftSelection}
+                  className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold transition-colors"
+                >
+                  Wszyscy
+                </button>
+                <button
+                  type="button"
+                  onClick={clearShiftSelection}
+                  className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold transition-colors"
+                >
+                  Wyczyść
+                </button>
+              </div>
+            </div>
+
+            {/* Employee Selection Grid */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-[48vh] overflow-y-auto pr-1">
+              {employees.map((emp) => {
+                const isSelected = shiftSelectionIds.includes(emp.id);
+                return (
+                  <button
+                    key={emp.id}
+                    type="button"
+                    onClick={() => toggleShiftSelection(emp.id)}
+                    className={`p-3.5 sm:p-4 rounded-2xl text-left border transition-all flex items-center justify-between gap-3 group ${
+                      isSelected
+                        ? 'bg-sky-500/15 border-sky-500 text-white shadow-lg shadow-sky-500/10 ring-1 ring-sky-500/50'
+                        : 'bg-slate-950/60 border-slate-800 text-slate-400 hover:border-slate-700 hover:bg-slate-800/50 hover:text-slate-200'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div
+                        className="w-10 h-10 rounded-xl flex items-center justify-center font-bold text-sm text-white shadow-md flex-shrink-0"
+                        style={{ backgroundColor: emp.color }}
+                      >
+                        {emp.shortName.slice(0, 2).toUpperCase()}
+                      </div>
+                      <div className="min-w-0">
+                        <p className={`font-extrabold text-sm truncate ${isSelected ? 'text-white' : 'text-slate-300 group-hover:text-white'}`}>
+                          {emp.name}
+                        </p>
+                        <p className="text-[11px] text-slate-500">
+                          {emp.shortName} • Stanowisko
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className={`w-6 h-6 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors ${
+                      isSelected ? 'bg-sky-500 text-white shadow' : 'bg-slate-800 border border-slate-700 text-transparent group-hover:border-slate-600'
+                    }`}>
+                      <Check className="w-4 h-4" />
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Modal Actions */}
+            <div className="flex items-center gap-3 pt-3 border-t border-slate-800">
+              <button
+                type="button"
+                onClick={() => setShowShiftStartModal(false)}
+                className="flex-1 py-3.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs sm:text-sm transition-colors"
+              >
+                Pomiń / Tylko podgląd
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveShiftModal}
+                className="flex-1 py-3.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-white font-extrabold text-xs sm:text-sm shadow-lg shadow-emerald-500/25 transition-all flex items-center justify-center gap-2"
+              >
+                <CheckCircle2 className="w-4 h-4" />
+                <span>Rozpocznij zmianę ({shiftSelectionIds.length})</span>
+              </button>
+            </div>
           </div>
         </div>
       )}

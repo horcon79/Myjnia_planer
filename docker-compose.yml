@@ -7,7 +7,7 @@ services:
     container_name: myjnia-planer
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "3050:3000"
     environment:
       - NODE_ENV=production
       - TZ=Europe/Warsaw
@@ -16,8 +16,11 @@ services:
     volumes:
       # Nazwany wolumen - dane przetrwają rebuild/redeploy kontenera
       - myjnia_data:/data
+      # Dane zleceń z DMS (plik JSON generowany przez Python/CRON na hoscie).
+      # Montowany tylko do odczytu w /app/zlecenia_sync — aplikacja czyta plik na bieżąco.
+      - ./zlecenia_sync:/app/zlecenia_sync:ro
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:3000"]
+      test: [ "CMD", "wget", "-q", "--spider", "http://127.0.0.1:3000" ]
       interval: 30s
       timeout: 5s
       retries: 3
