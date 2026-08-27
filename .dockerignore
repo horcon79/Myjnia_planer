@@ -32,3 +32,11 @@ AGENTS.md
 docker-compose*.yml
 Dockerfile
 .dockerignore
+
+# Środowisko Python / skrypty synchronizacji DMS
+**/venv
+**/.venv
+**/__pycache__
+*.pyc
+zlecenia_sync
+

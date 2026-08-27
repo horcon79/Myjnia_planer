@@ -12,7 +12,7 @@ let cached: { mtimeMs: number; snapshot: DmsSnapshot } | null = null;
 
 export function getDmsFilePath(): string {
   const env = process.env.DMS_FILE_PATH;
-  return env ? path.resolve(process.cwd(), env) : DEFAULT_FILE;
+  return env ? path.resolve(/*turbopackIgnore: true*/ process.cwd(), env) : DEFAULT_FILE;
 }
 
 function normalize(s: string | null | undefined): string {
