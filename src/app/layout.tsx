@@ -4,6 +4,7 @@ import { cookies } from "next/headers";
 import "./globals.css";
 import { I18nProvider } from "@/i18n/I18nProvider";
 import { DEFAULT_LOCALE, LOCALE_COOKIE, isSupportedLocale, toHtmlLang } from "@/i18n/config";
+import { LegacyUiTranslator } from "@/components/LegacyUiTranslator";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -49,7 +50,10 @@ export default async function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full bg-slate-950 text-slate-100 flex flex-col antialiased selection:bg-sky-500 selection:text-white">
-        <I18nProvider initialLocale={initialLocale}>{children}</I18nProvider>
+        <I18nProvider initialLocale={initialLocale}>
+          <LegacyUiTranslator />
+          {children}
+        </I18nProvider>
       </body>
     </html>
   );
