@@ -37,7 +37,9 @@ import {
   CalendarClock,
   Move,
   FileText,
-  UserPlus
+  UserPlus,
+  Eye,
+  Lock
 } from 'lucide-react';
 import { format, addDays, subDays } from 'date-fns';
 import { pl } from 'date-fns/locale';
@@ -57,6 +59,9 @@ export default function PlannerBoard({
   employees,
   settings,
 }: PlannerBoardProps) {
+  // Uprawnienia: tylko MYJNIA oraz KIEROWNIK/ADMIN mogą dokonywać zmian w planerze
+  const canEdit = currentUser?.role === 'WASHER' || currentUser?.role === 'ADMIN';
+
   // Current selected date
   const [currentDate, setCurrentDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [orders, setOrders] = useState<any[]>([]);
@@ -213,7 +218,7 @@ export default function PlannerBoard({
         // No shift configured for this day yet → default: no one selected
         setActiveEmpIds([]);
         // If viewing today and no shift has been chosen, prompt shift start modal
-        if (isToday) {
+        if (isToday && canEdit) {
           setShiftSelectionIds([]);
           setShowShiftStartModal(true);
         }
@@ -231,7 +236,7 @@ export default function PlannerBoard({
     } catch (e) {
       console.error(e);
     }
-  }, [employees, currentDate, isToday]);
+  }, [employees, currentDate, isToday, canEdit]);
 
   const scrollToCurrentTime = (smooth: boolean = true) => {
     if (!isToday) return;
@@ -484,7 +489,7 @@ export default function PlannerBoard({
   };
 
   const handleCardPointerDown = (e: React.PointerEvent, ord: any) => {
-    if (ord.status === 'COMPLETED') return;
+    if (!canEdit || ord.status === 'COMPLETED') return;
     if ((e.target as HTMLElement).closest('button')) return;
 
     dragRef.current = { order: ord, pointerId: e.pointerId, startX: e.clientX, startY: e.clientY, active: false };
@@ -596,6 +601,7 @@ export default function PlannerBoard({
   };
 
   const handleCellPointerDown = (e: React.PointerEvent, slotTime: string, empId: string) => {
+    if (!canEdit) return;
     // Nie uruchamiaj, gdy naciśnięto kartę zlecenia lub przycisk
     if ((e.target as HTMLElement).closest('[data-order-card], button')) return;
 
@@ -839,22 +845,31 @@ export default function PlannerBoard({
           </button>
         </div>
 
-        {/* Shift Staff Selector (Up to 5 employees) */}
+        {/* Shift Staff Selector (Interactive for wash/admin, Read-only badges for departments) */}
         <div className="flex items-center gap-1.5 flex-wrap">
-          <button
-            onClick={openShiftStartModal}
-            className="text-[11px] font-bold text-slate-400 hover:text-sky-300 uppercase tracking-wider flex items-center gap-1 mr-1 px-2.5 py-1.5 rounded-xl bg-slate-950/80 hover:bg-slate-800 border border-slate-800 transition-all group"
-            title="Kliknij, aby zarządzać składem zmiany"
-          >
-            <Users className="w-3.5 h-3.5 text-sky-400 group-hover:scale-110 transition-transform" />
-            <span>Zmiana ({activeEmployees.length}):</span>
-            <UserPlus className="w-3 h-3 text-sky-400 ml-0.5" />
-          </button>
+          {canEdit ? (
+            <button
+              onClick={openShiftStartModal}
+              className="text-[11px] font-bold text-slate-400 hover:text-sky-300 uppercase tracking-wider flex items-center gap-1 mr-1 px-2.5 py-1.5 rounded-xl bg-slate-950/80 hover:bg-slate-800 border border-slate-800 transition-all group"
+              title="Kliknij, aby zarządzać składem zmiany"
+            >
+              <Users className="w-3.5 h-3.5 text-sky-400 group-hover:scale-110 transition-transform" />
+              <span>Zmiana ({activeEmployees.length}):</span>
+              <UserPlus className="w-3 h-3 text-sky-400 ml-0.5" />
+            </button>
+          ) : (
+            <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1 mr-1 px-2.5 py-1.5 rounded-xl bg-slate-950/80 border border-slate-800">
+              <Users className="w-3.5 h-3.5 text-sky-400" />
+              <span>Zmiana ({activeEmployees.length}):</span>
+            </div>
+          )}
+
           {employees.map((emp) => {
             const isActive = activeEmpIds.includes(emp.id);
             const overShift = isActive && isOverShift(emp.id);
             const elapsed = isActive && shiftStartTimes[emp.id] ? formatElapsedTime(shiftStartTimes[emp.id]) : null;
-            return (
+
+            return canEdit ? (
               <button
                 key={emp.id}
                 onClick={() => requestShiftChange(emp.id, isActive)}
@@ -879,12 +894,40 @@ export default function PlannerBoard({
                 )}
                 {isActive && <Check className={`w-3 h-3 ${overShift ? 'text-amber-400' : 'text-sky-400'}`} />}
               </button>
+            ) : (
+              <div
+                key={emp.id}
+                className={`px-2.5 py-1.5 sm:py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 border ${
+                  isActive
+                    ? 'bg-slate-800 border-sky-500/60 text-white shadow'
+                    : 'bg-slate-950/50 border-slate-800/80 text-slate-500 opacity-60'
+                }`}
+              >
+                <div
+                  className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                  style={{ backgroundColor: emp.color }}
+                />
+                <span className="truncate max-w-[70px] sm:max-w-none">{emp.shortName}</span>
+                {elapsed && (
+                  <span className="text-[10px] font-mono font-bold text-sky-400">
+                    {elapsed}
+                  </span>
+                )}
+                {isActive && <Check className="w-3 h-3 text-sky-400" />}
+              </div>
             );
           })}
         </div>
 
-        {/* Capacity Indicator & Override Add Button */}
+        {/* Capacity Indicator & Add Button / Read-Only Mode Badge */}
         <div className="flex items-center gap-2">
+          {!canEdit && (
+            <div className="px-3 py-2 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-300 text-xs font-bold flex items-center gap-1.5 shadow">
+              <Eye className="w-4 h-4 text-amber-400" />
+              <span>Podgląd ({currentUser?.name || currentUser?.code || 'Dział'})</span>
+            </div>
+          )}
+
           <div className={`px-3 py-2 rounded-xl border flex items-center gap-2 text-xs font-bold ${
             currentHourLoad >= maxCarsLimit
               ? 'bg-amber-500/15 border-amber-500/40 text-amber-300'
@@ -894,16 +937,18 @@ export default function PlannerBoard({
             <span>Myte: <strong className="text-white text-sm">{currentHourLoad}</strong> / {maxCarsLimit}</span>
           </div>
 
-          <button
-            onClick={() => setQuickAddPrefill({
-              time: getRoundedCurrentTime(30),
-              employeeId: activeEmployees[0]?.id || employees[0]?.id || '',
-            })}
-            className="px-3.5 py-2 sm:py-2.5 rounded-xl bg-sky-500 hover:bg-sky-400 text-white font-extrabold text-xs shadow-lg shadow-sky-500/20 transition-all flex items-center gap-1.5"
-          >
-            <Plus className="w-4 h-4" />
-            <span>+ DODAJ</span>
-          </button>
+          {canEdit && (
+            <button
+              onClick={() => setQuickAddPrefill({
+                time: getRoundedCurrentTime(30),
+                employeeId: activeEmployees[0]?.id || employees[0]?.id || '',
+              })}
+              className="px-3.5 py-2 sm:py-2.5 rounded-xl bg-sky-500 hover:bg-sky-400 text-white font-extrabold text-xs shadow-lg shadow-sky-500/20 transition-all flex items-center gap-1.5"
+            >
+              <Plus className="w-4 h-4" />
+              <span>+ DODAJ</span>
+            </button>
+          )}
         </div>
 
       </div>
@@ -1032,22 +1077,28 @@ export default function PlannerBoard({
                       {ord.carModel || 'Pojazd'} • <span className="text-slate-400">{ord.category?.name}</span>
                     </p>
                   </div>
-                  <div className="grid grid-cols-2 gap-1.5 mt-2.5 pt-2 border-t border-amber-500/20">
-                    <button
-                      onClick={() => handleMoveToToday(ord)}
-                      className="py-1.5 px-2 rounded-xl bg-sky-500 hover:bg-sky-400 text-white font-black text-[10px] transition-all flex items-center justify-center gap-1 shadow"
-                    >
-                      <CalendarClock className="w-3 h-3" />
-                      Teraz
-                    </button>
-                    <button
-                      onClick={() => setFinishConfirmId(ord.id)}
-                      className="py-1.5 px-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-[10px] transition-all flex items-center justify-center gap-1 shadow"
-                    >
-                      <CheckCircle2 className="w-3 h-3 stroke-[3]" />
-                      Gotowe
-                    </button>
-                  </div>
+                  {canEdit ? (
+                    <div className="grid grid-cols-2 gap-1.5 mt-2.5 pt-2 border-t border-amber-500/20">
+                      <button
+                        onClick={() => handleMoveToToday(ord)}
+                        className="py-1.5 px-2 rounded-xl bg-sky-500 hover:bg-sky-400 text-white font-black text-[10px] transition-all flex items-center justify-center gap-1 shadow"
+                      >
+                        <CalendarClock className="w-3 h-3" />
+                        Teraz
+                      </button>
+                      <button
+                        onClick={() => setFinishConfirmId(ord.id)}
+                        className="py-1.5 px-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-[10px] transition-all flex items-center justify-center gap-1 shadow"
+                      >
+                        <CheckCircle2 className="w-3 h-3 stroke-[3]" />
+                        Gotowe
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="mt-2.5 pt-2 border-t border-amber-500/20 text-[10px] text-amber-300 font-bold text-center">
+                      Niezrealizowane – oczekuje na myjnię
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -1064,7 +1115,7 @@ export default function PlannerBoard({
               Poczekalnia aut do przydzielenia ({unassignedOrders.length})
             </h3>
             <span className="text-[11px] text-slate-400">
-              Tapnij auto, aby przypisać pracownika i godzinę
+              {canEdit ? 'Tapnij auto, aby przypisać pracownika i godzinę' : 'Pojazdy oczekujące na przydzielenie przez obsługę myjni'}
             </span>
           </div>
 
@@ -1091,9 +1142,11 @@ export default function PlannerBoard({
                     Na: {format(new Date(ord.targetReadyTime), 'HH:mm')}
                   </p>
                 </div>
-                <button className="p-1.5 rounded-lg bg-sky-500/20 text-sky-400 hover:bg-sky-500 hover:text-white transition-colors">
-                  <ArrowRight className="w-3.5 h-3.5" />
-                </button>
+                {canEdit && (
+                  <button className="p-1.5 rounded-lg bg-sky-500/20 text-sky-400 hover:bg-sky-500 hover:text-white transition-colors">
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </button>
+                )}
               </div>
             ))}
           </div>
@@ -1106,14 +1159,23 @@ export default function PlannerBoard({
         className="flex-1 bg-slate-900 border border-slate-800 rounded-3xl p-3 sm:p-5 shadow-2xl overflow-x-auto max-h-[75vh] overflow-y-auto relative"
       >
         <div className="flex items-center justify-end mb-2 text-[10px] text-slate-500 gap-4">
-          <span className="flex items-center gap-1.5">
-            <Plus className="w-3 h-3 text-emerald-400" />
-            Przytrzymaj puste pole lub kliknij 2x, aby szybko dodać auto
-          </span>
-          <span className="flex items-center gap-1.5">
-            <Move className="w-3 h-3 text-sky-400" />
-            Przytrzymaj auto i przeciągnij, aby zmienić godzinę lub pracownika
-          </span>
+          {canEdit ? (
+            <>
+              <span className="flex items-center gap-1.5">
+                <Plus className="w-3 h-3 text-emerald-400" />
+                Przytrzymaj puste pole lub kliknij 2x, aby szybko dodać auto
+              </span>
+              <span className="flex items-center gap-1.5">
+                <Move className="w-3 h-3 text-sky-400" />
+                Przytrzymaj auto i przeciągnij, aby zmienić godzinę lub pracownika
+              </span>
+            </>
+          ) : (
+            <span className="flex items-center gap-1.5 text-amber-400/80 font-bold">
+              <Lock className="w-3.5 h-3.5" />
+              Tryb tylko do podglądu – modyfikacje są zastrzeżone dla obsługi myjni i kierownika
+            </span>
+          )}
         </div>
         {activeEmployees.length === 0 ? (
           <div className="py-20 px-6 text-center flex flex-col items-center justify-center">
@@ -1122,15 +1184,19 @@ export default function PlannerBoard({
             </div>
             <h3 className="text-xl font-extrabold text-white">Brak aktywnych pracowników na zmianie</h3>
             <p className="text-xs sm:text-sm text-slate-400 mt-2 max-w-md mx-auto">
-              Żaden pracownik nie został jeszcze zarejestrowany na dzisiejszą zmianę. Kliknij poniższy przycisk, aby wybrać obecnych pracowników i rozpocząć pracę w planerze.
+              {canEdit
+                ? 'Żaden pracownik nie został jeszcze zarejestrowany na dzisiejszą zmianę. Kliknij poniższy przycisk, aby wybrać obecnych pracowników i rozpocząć pracę w planerze.'
+                : 'Obsada myjni nie rozpoczęła jeszcze zmiany na ten dzień. Gdy pracownicy myjni zameldują się w systemie, pojawi się tutaj pełny harmonogram.'}
             </p>
-            <button
-              onClick={openShiftStartModal}
-              className="mt-6 px-6 py-3.5 rounded-2xl bg-sky-500 hover:bg-sky-400 text-white font-extrabold text-sm shadow-xl shadow-sky-500/25 transition-all flex items-center gap-2"
-            >
-              <UserPlus className="w-4 h-4" />
-              <span>Wybierz pracowników i rozpocznij zmianę</span>
-            </button>
+            {canEdit && (
+              <button
+                onClick={openShiftStartModal}
+                className="mt-6 px-6 py-3.5 rounded-2xl bg-sky-500 hover:bg-sky-400 text-white font-extrabold text-sm shadow-xl shadow-sky-500/25 transition-all flex items-center gap-2"
+              >
+                <UserPlus className="w-4 h-4" />
+                <span>Wybierz pracowników i rozpocznij zmianę</span>
+              </button>
+            )}
           </div>
         ) : (
           <div className="min-w-full">
@@ -1235,6 +1301,7 @@ export default function PlannerBoard({
                         onPointerUp={handleCellPointerUp}
                         onPointerCancel={handleCellPointerUp}
                         onDoubleClick={(e) => {
+                          if (!canEdit) return;
                           if ((e.target as HTMLElement).closest('[data-order-card], button')) return;
                           setQuickAddPrefill({ time: slot, employeeId: emp.id });
                         }}
@@ -1247,7 +1314,7 @@ export default function PlannerBoard({
                         } ${isPastSlot ? 'opacity-85' : ''}`}
                         style={{ top: slotIdx * SLOT_STEP, height: SLOT_HEIGHT }}
                       >
-                        {!isCovered && (
+                        {!isCovered && canEdit && (
                           <span className="text-slate-700 group-hover:text-sky-400 transition-colors pointer-events-none">
                             <Plus className="w-4 h-4 opacity-40 group-hover:opacity-100" />
                           </span>
@@ -1351,36 +1418,47 @@ export default function PlannerBoard({
                             </div>
 
                             <div className="mt-1">
-                              {ord.status === 'PLANNED' && (
-                                <button
-                                  onClick={(e) => { e.stopPropagation(); handleStartOrder(ord.id); }}
-                                  className="w-full py-0.5 rounded bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-[9px] flex items-center justify-center gap-1"
-                                >
-                                  <Play className="w-2 h-2 fill-current" />
-                                  START
-                                </button>
-                              )}
-                              {ord.status === 'IN_PROGRESS' && (
-                                <button
-                                  onClick={(e) => { e.stopPropagation(); setFinishConfirmId(ord.id); }}
-                                  className="w-full py-0.5 rounded bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-[9px] flex items-center justify-center gap-1"
-                                >
-                                  <CheckCircle2 className="w-2 h-2 stroke-[3]" />
-                                  GOTOWE
-                                </button>
-                              )}
-                              {ord.status === 'READY' && (
-                                <button
-                                  onClick={(e) => { e.stopPropagation(); handleCompleteOrder(ord.id); }}
-                                  className="w-full py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-emerald-300 font-bold text-[9px] flex items-center justify-center gap-1 border border-emerald-500/40"
-                                >
-                                  <Check className="w-2 h-2" />
-                                  WYDANE
-                                </button>
-                              )}
-                              {ord.status === 'COMPLETED' && (
-                                <div className="text-center text-[8px] font-black uppercase text-slate-500 py-0.5">
-                                  Wydane
+                              {canEdit ? (
+                                <>
+                                  {ord.status === 'PLANNED' && (
+                                    <button
+                                      onClick={(e) => { e.stopPropagation(); handleStartOrder(ord.id); }}
+                                      className="w-full py-0.5 rounded bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-[9px] flex items-center justify-center gap-1"
+                                    >
+                                      <Play className="w-2 h-2 fill-current" />
+                                      START
+                                    </button>
+                                  )}
+                                  {ord.status === 'IN_PROGRESS' && (
+                                    <button
+                                      onClick={(e) => { e.stopPropagation(); setFinishConfirmId(ord.id); }}
+                                      className="w-full py-0.5 rounded bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-[9px] flex items-center justify-center gap-1"
+                                    >
+                                      <CheckCircle2 className="w-2 h-2 stroke-[3]" />
+                                      GOTOWE
+                                    </button>
+                                  )}
+                                  {ord.status === 'READY' && (
+                                    <button
+                                      onClick={(e) => { e.stopPropagation(); handleCompleteOrder(ord.id); }}
+                                      className="w-full py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-emerald-300 font-bold text-[9px] flex items-center justify-center gap-1 border border-emerald-500/40"
+                                    >
+                                      <Check className="w-2 h-2" />
+                                      WYDANE
+                                    </button>
+                                  )}
+                                  {ord.status === 'COMPLETED' && (
+                                    <div className="text-center text-[8px] font-black uppercase text-slate-500 py-0.5">
+                                      Wydane
+                                    </div>
+                                  )}
+                                </>
+                              ) : (
+                                <div className="text-center text-[8px] font-bold py-0.5">
+                                  {ord.status === 'PLANNED' && <span className="text-amber-400">W kolejce</span>}
+                                  {ord.status === 'IN_PROGRESS' && <span className="text-amber-300 animate-pulse">Mycie...</span>}
+                                  {ord.status === 'READY' && <span className="text-emerald-400">Gotowe</span>}
+                                  {ord.status === 'COMPLETED' && <span className="text-slate-500">Wydane</span>}
                                 </div>
                               )}
                             </div>
@@ -1427,51 +1505,60 @@ export default function PlannerBoard({
                             </div>
 
                             {/* Compact action buttons (overlapping card) */}
-                            <div className="flex flex-col gap-1 pt-1 mt-1 border-t border-white/10">
-                              {ord.status === 'PLANNED' && (
-                                <button
-                                  onClick={(e) => { e.stopPropagation(); handleStartOrder(ord.id); }}
-                                  className="py-1 rounded bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-[9px] flex items-center justify-center gap-1"
-                                >
-                                  <Play className="w-2.5 h-2.5 fill-current" />
-                                  ROZPOCZNIJ
-                                </button>
-                              )}
-                              {ord.status === 'IN_PROGRESS' && (
-                                <button
-                                  onClick={(e) => { e.stopPropagation(); setFinishConfirmId(ord.id); }}
-                                  className="py-1 rounded bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-[9px] flex items-center justify-center gap-1"
-                                >
-                                  <CheckCircle2 className="w-2.5 h-2.5 stroke-[3]" />
-                                  GOTOWE
-                                </button>
-                              )}
-                              {ord.status === 'READY' && (
-                                <button
-                                  onClick={(e) => { e.stopPropagation(); handleCompleteOrder(ord.id); }}
-                                  className="py-1 rounded bg-slate-700 hover:bg-slate-600 text-emerald-300 font-bold text-[9px] flex items-center justify-center gap-1 border border-emerald-500/40"
-                                >
-                                  <Check className="w-2.5 h-2.5" />
-                                  WYDANE
-                                </button>
-                              )}
-                              <div className="flex gap-1">
-                                <button
-                                  onClick={(e) => { e.stopPropagation(); setEditingOrder(ord); }}
-                                  className="flex-1 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[9px] font-semibold flex items-center justify-center gap-1"
-                                >
-                                  <Edit3 className="w-2.5 h-2.5" />
-                                  Zmień
-                                </button>
-                                <button
-                                  onClick={(e) => { e.stopPropagation(); setDeleteConfirmId(ord.id); }}
-                                  className="flex-1 py-1 rounded bg-slate-800 hover:bg-rose-900/60 text-slate-400 hover:text-rose-300 text-[9px] font-semibold flex items-center justify-center gap-1"
-                                >
-                                  <Trash2 className="w-2.5 h-2.5" />
-                                  Usuń
-                                </button>
+                            {canEdit ? (
+                              <div className="flex flex-col gap-1 pt-1 mt-1 border-t border-white/10">
+                                {ord.status === 'PLANNED' && (
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); handleStartOrder(ord.id); }}
+                                    className="py-1 rounded bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-[9px] flex items-center justify-center gap-1"
+                                  >
+                                    <Play className="w-2.5 h-2.5 fill-current" />
+                                    ROZPOCZNIJ
+                                  </button>
+                                )}
+                                {ord.status === 'IN_PROGRESS' && (
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); setFinishConfirmId(ord.id); }}
+                                    className="py-1 rounded bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-[9px] flex items-center justify-center gap-1 shadow-lg shadow-emerald-500/30"
+                                  >
+                                    <CheckCircle2 className="w-2.5 h-2.5 stroke-[3]" />
+                                    GOTOWE
+                                  </button>
+                                )}
+                                {ord.status === 'READY' && (
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); handleCompleteOrder(ord.id); }}
+                                    className="py-1 rounded bg-slate-700 hover:bg-slate-600 text-emerald-300 font-bold text-[9px] flex items-center justify-center gap-1 border border-emerald-500/40"
+                                  >
+                                    <Check className="w-2.5 h-2.5" />
+                                    WYDANE
+                                  </button>
+                                )}
+                                <div className="flex gap-1">
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); setEditingOrder(ord); }}
+                                    className="flex-1 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[9px] font-semibold flex items-center justify-center gap-1"
+                                  >
+                                    <Edit3 className="w-2.5 h-2.5" />
+                                    Zmień
+                                  </button>
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); setDeleteConfirmId(ord.id); }}
+                                    className="flex-1 py-1 rounded bg-slate-800 hover:bg-rose-900/60 text-slate-400 hover:text-rose-300 text-[9px] font-semibold flex items-center justify-center gap-1"
+                                  >
+                                    <Trash2 className="w-2.5 h-2.5" />
+                                    Usuń
+                                  </button>
+                                </div>
                               </div>
-                            </div>
+                            ) : (
+                              <div className="pt-1 mt-1 border-t border-white/10 text-center text-[9px] font-bold">
+                                {ord.status === 'PLANNED' && <span className="text-amber-400">W kolejce</span>}
+                                {ord.status === 'IN_PROGRESS' && <span className="text-amber-300 animate-pulse">Mycie w toku</span>}
+                                {ord.status === 'READY' && <span className="text-emerald-400">Gotowe do odbioru</span>}
+                                {ord.status === 'COMPLETED' && <span className="text-slate-500">Wydane</span>}
+                              </div>
+                            )}
                           </>
                         ) : (
                           <>
@@ -1547,64 +1634,71 @@ export default function PlannerBoard({
                           </div>
                         )}
 
-                        {/* Touch Action Buttons (Tablet-Friendly) */}
-                        <div className="grid grid-cols-2 gap-1 pt-1.5 border-t border-white/10">
-                          
-                          {ord.status === 'PLANNED' && (
+                        {/* Touch Action Buttons (Tablet-Friendly for wash staff, read-only status for others) */}
+                        {canEdit ? (
+                          <div className="grid grid-cols-2 gap-1 pt-1.5 border-t border-white/10">
+                            {ord.status === 'PLANNED' && (
+                              <button
+                                onClick={() => handleStartOrder(ord.id)}
+                                className="col-span-2 py-2 sm:py-2.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs transition-all flex items-center justify-center gap-1 shadow"
+                              >
+                                <Play className="w-3.5 h-3.5 fill-current" />
+                                <span>ROZPOCZNIJ</span>
+                              </button>
+                            )}
+
+                            {ord.status === 'IN_PROGRESS' && (
+                              <button
+                                onClick={() => setFinishConfirmId(ord.id)}
+                                className="col-span-2 py-2.5 sm:py-3 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs transition-all flex items-center justify-center gap-1.5 shadow-lg shadow-emerald-500/30 animate-bounce-slow"
+                              >
+                                <CheckCircle2 className="w-4 h-4 stroke-[3]" />
+                                <span>GOTOWE / ZREALIZOWANO</span>
+                              </button>
+                            )}
+
+                            {ord.status === 'READY' && (
+                              <button
+                                onClick={() => handleCompleteOrder(ord.id)}
+                                className="col-span-2 py-1.5 sm:py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-emerald-400 font-bold text-xs transition-all flex items-center justify-center gap-1 border border-emerald-500/40"
+                              >
+                                <Check className="w-3.5 h-3.5" />
+                                <span>WYDANE Z MYJNI</span>
+                              </button>
+                            )}
+
                             <button
-                              onClick={() => handleStartOrder(ord.id)}
-                              className="col-span-2 py-2 sm:py-2.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs transition-all flex items-center justify-center gap-1 shadow"
+                              onClick={() => openNoteModal(ord)}
+                              className="py-1 rounded-lg bg-slate-800 hover:bg-sky-900/60 text-slate-300 hover:text-sky-300 text-[10px] font-semibold transition-colors flex items-center justify-center gap-1"
                             >
-                              <Play className="w-3.5 h-3.5 fill-current" />
-                              <span>ROZPOCZNIJ</span>
+                              <FileText className="w-3 h-3" />
+                              <span>Notatka</span>
                             </button>
-                          )}
 
-                          {ord.status === 'IN_PROGRESS' && (
                             <button
-                              onClick={() => setFinishConfirmId(ord.id)}
-                              className="col-span-2 py-2.5 sm:py-3 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs transition-all flex items-center justify-center gap-1.5 shadow-lg shadow-emerald-500/30 animate-bounce-slow"
+                              onClick={() => setEditingOrder(ord)}
+                              className="py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] font-semibold transition-colors flex items-center justify-center gap-1"
                             >
-                              <CheckCircle2 className="w-4 h-4 stroke-[3]" />
-                              <span>GOTOWE / ZREALIZOWANO</span>
+                              <Edit3 className="w-3 h-3" />
+                              <span>Zmień</span>
                             </button>
-                          )}
 
-                          {ord.status === 'READY' && (
                             <button
-                              onClick={() => handleCompleteOrder(ord.id)}
-                              className="col-span-2 py-1.5 sm:py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-emerald-400 font-bold text-xs transition-all flex items-center justify-center gap-1 border border-emerald-500/40"
+                              onClick={() => setDeleteConfirmId(ord.id)}
+                              className="col-span-2 py-1 rounded-lg bg-slate-800 hover:bg-rose-900/60 text-slate-400 hover:text-rose-300 text-[10px] font-semibold transition-colors flex items-center justify-center gap-1"
                             >
-                              <Check className="w-3.5 h-3.5" />
-                              <span>WYDANE Z MYJNI</span>
+                              <Trash2 className="w-3 h-3" />
+                              <span>Usuń</span>
                             </button>
-                          )}
-
-                          <button
-                            onClick={() => openNoteModal(ord)}
-                            className="py-1 rounded-lg bg-slate-800 hover:bg-sky-900/60 text-slate-300 hover:text-sky-300 text-[10px] font-semibold transition-colors flex items-center justify-center gap-1"
-                          >
-                            <FileText className="w-3 h-3" />
-                            <span>Notatka</span>
-                          </button>
-
-                          <button
-                            onClick={() => setEditingOrder(ord)}
-                            className="py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] font-semibold transition-colors flex items-center justify-center gap-1"
-                          >
-                            <Edit3 className="w-3 h-3" />
-                            <span>Zmień</span>
-                          </button>
-
-                          <button
-                            onClick={() => setDeleteConfirmId(ord.id)}
-                            className="py-1 rounded-lg bg-slate-800 hover:bg-rose-900/60 text-slate-400 hover:text-rose-300 text-[10px] font-semibold transition-colors flex items-center justify-center gap-1"
-                          >
-                            <Trash2 className="w-3 h-3" />
-                            <span>Usuń</span>
-                          </button>
-
-                        </div>
+                          </div>
+                        ) : (
+                          <div className="pt-1.5 border-t border-white/10 text-center py-1.5 rounded-lg bg-slate-950/60 border border-slate-800 text-xs font-bold">
+                            {ord.status === 'PLANNED' && <span className="text-amber-400">Oczekuje na mycie</span>}
+                            {ord.status === 'IN_PROGRESS' && <span className="text-amber-300 animate-pulse">W trakcie mycia</span>}
+                            {ord.status === 'READY' && <span className="text-emerald-400">Gotowe do odbioru</span>}
+                            {ord.status === 'COMPLETED' && <span className="text-slate-400">Wydane</span>}
+                          </div>
+                        )}
 
                           </>
                         )}
@@ -1851,8 +1945,8 @@ export default function PlannerBoard({
             <div className="flex items-center justify-between mb-4">
               <div>
                 <h3 className="text-lg font-extrabold text-white flex items-center gap-2">
-                  <Edit3 className="w-5 h-5 text-sky-400" />
-                  Harmonogram: {editingOrder.licensePlate}
+                  {canEdit ? <Edit3 className="w-5 h-5 text-sky-400" /> : <Eye className="w-5 h-5 text-sky-400" />}
+                  {canEdit ? `Harmonogram: ${editingOrder.licensePlate}` : `Podgląd: ${editingOrder.licensePlate}`}
                 </h3>
                 <p className="text-xs text-slate-400 mt-0.5">
                   Wnioskowana data wydania przez dział: <strong className="text-amber-300">{format(new Date(editingOrder.targetReadyTime), 'd MMMM, HH:mm', { locale: pl })}</strong>
@@ -1880,197 +1974,273 @@ export default function PlannerBoard({
               </div>
             )}
 
-            <div className="space-y-4">
-              
-              {/* Date Selection (Dziś / Jutro / Pojutrze + Date Input) */}
-              <div className="bg-slate-950 p-3.5 rounded-2xl border border-slate-800 space-y-2">
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-400">
-                  1. Dzień Realizacji Mycia
-                </label>
-                <div className="flex flex-wrap items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setModalScheduleDate(format(new Date(), 'yyyy-MM-dd'))}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
-                      modalScheduleDate === format(new Date(), 'yyyy-MM-dd')
-                        ? 'bg-sky-500 text-white shadow'
-                        : 'bg-slate-800 text-slate-400 hover:text-white'
-                    }`}
-                  >
-                    Dziś
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setModalScheduleDate(format(addDays(new Date(), 1), 'yyyy-MM-dd'))}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
-                      modalScheduleDate === format(addDays(new Date(), 1), 'yyyy-MM-dd')
-                        ? 'bg-sky-500 text-white shadow'
-                        : 'bg-slate-800 text-slate-400 hover:text-white'
-                    }`}
-                  >
-                    Jutro
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setModalScheduleDate(format(addDays(new Date(), 2), 'yyyy-MM-dd'))}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
-                      modalScheduleDate === format(addDays(new Date(), 2), 'yyyy-MM-dd')
-                        ? 'bg-sky-500 text-white shadow'
-                        : 'bg-slate-800 text-slate-400 hover:text-white'
-                    }`}
-                  >
-                    Pojutrze
-                  </button>
-                  <input
-                    type="date"
-                    value={modalScheduleDate}
-                    onChange={(e) => setModalScheduleDate(e.target.value)}
-                    className="px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-700 text-white text-xs font-bold focus:border-sky-500"
-                  />
-                </div>
-              </div>
-
-              {/* Employee Selection (Restricted to active shift staff) */}
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">
-                  2. Przypisany Pracownik Myjni (ze zmiany)
-                </label>
-                <select
-                  value={modalEmployeeId}
-                  onChange={(e) => setModalEmployeeId(e.target.value)}
-                  className="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-700 text-white font-bold text-sm focus:outline-none focus:border-sky-500"
-                >
-                  {(activeEmployees.length > 0 ? activeEmployees : employees).map(e => (
-                    <option key={e.id} value={e.id}>{e.name} ({e.shortName})</option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Time Selection */}
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-400">
-                      Godzina Startu
-                    </label>
-                    <button
-                      type="button"
-                      onClick={() => setModalScheduleTime(getRoundedCurrentTime(30))}
-                      className="text-[10px] font-bold text-sky-400 hover:text-sky-300 px-1.5 py-0.5 rounded bg-sky-500/15"
-                    >
-                      Teraz ({getRoundedCurrentTime(30)})
-                    </button>
+            {!canEdit ? (
+              /* Read-only order preview for departments */
+              <div className="space-y-4">
+                <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-3">
+                  <div className="grid grid-cols-2 gap-3 text-xs">
+                    <div>
+                      <span className="text-slate-400 block text-[10px] uppercase font-bold">Pojazd:</span>
+                      <span className="font-mono font-bold text-white text-sm">{editingOrder.licensePlate}</span>
+                      <p className="text-slate-300 text-[11px]">{editingOrder.carModel || '—'}</p>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 block text-[10px] uppercase font-bold">Dział Zgłaszający:</span>
+                      <span className="font-bold text-white">{editingOrder.department?.name} ({editingOrder.department?.code})</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 block text-[10px] uppercase font-bold">Zakres Mycia:</span>
+                      <span className="font-bold text-white">{editingOrder.category?.name}</span>
+                      <p className="text-sky-400 font-bold text-[10px]">⏱ {editingOrder.durationMin} min</p>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 block text-[10px] uppercase font-bold">Status:</span>
+                      <span className="font-bold text-emerald-400">
+                        {editingOrder.status === 'PLANNED' && 'Zaplanowane / W kolejce'}
+                        {editingOrder.status === 'IN_PROGRESS' && 'W trakcie mycia'}
+                        {editingOrder.status === 'READY' && 'Gotowe do odbioru'}
+                        {editingOrder.status === 'COMPLETED' && 'Wydane / Zakończone'}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 block text-[10px] uppercase font-bold">Wymagany odbiór:</span>
+                      <span className="font-bold text-amber-300">
+                        {format(new Date(editingOrder.targetReadyTime), 'd MMMM yyyy, HH:mm', { locale: pl })}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 block text-[10px] uppercase font-bold">Start w planerze:</span>
+                      <span className="font-bold text-sky-400">
+                        {editingOrder.scheduledStartTime
+                          ? format(new Date(editingOrder.scheduledStartTime), 'd MMMM yyyy, HH:mm', { locale: pl })
+                          : 'W poczekalni (brak terminu)'}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 block text-[10px] uppercase font-bold">Przypisany myjkowy:</span>
+                      <span className="font-bold text-white">
+                        {employees.find(e => e.id === editingOrder.assignedEmployeeId)?.name || 'Nieprzypisany'}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 block text-[10px] uppercase font-bold">Osoba zgłaszająca:</span>
+                      <span className="font-bold text-slate-300">{editingOrder.contactPerson || '—'}</span>
+                    </div>
                   </div>
-                  <input
-                    type="time"
-                    value={modalScheduleTime}
-                    onChange={(e) => setModalScheduleTime(e.target.value)}
-                    className="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-700 text-white font-mono text-base font-bold focus:outline-none focus:border-sky-500"
-                  />
-                  {/* Quick time helpers */}
-                  <div className="flex items-center gap-1.5 mt-2">
-                    <button
-                      type="button"
-                      onClick={() => setModalScheduleTime(getRoundedCurrentTime(30))}
-                      className="text-[10px] px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold"
-                    >
-                      Teraz
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const [h, m] = (modalScheduleTime || getRoundedCurrentTime(30)).split(':').map(Number);
-                        const d = new Date();
-                        d.setHours(h, m + 30, 0, 0);
-                        setModalScheduleTime(format(d, 'HH:mm'));
-                      }}
-                      className="text-[10px] px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold"
-                    >
-                      +30m
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const [h, m] = (modalScheduleTime || getRoundedCurrentTime(30)).split(':').map(Number);
-                        const d = new Date();
-                        d.setHours(h + 1, m, 0, 0);
-                        setModalScheduleTime(format(d, 'HH:mm'));
-                      }}
-                      className="text-[10px] px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold"
-                    >
-                      +1h
-                    </button>
-                  </div>
+
+                  {editingOrder.notes && (
+                    <div className="pt-2.5 border-t border-slate-800">
+                      <span className="text-slate-400 block text-[10px] uppercase font-bold mb-1">Uwagi do zlecenia:</span>
+                      <p className="text-slate-200 text-xs italic bg-slate-900 p-2.5 rounded-xl border border-slate-800">
+                        {editingOrder.notes}
+                      </p>
+                    </div>
+                  )}
                 </div>
 
+                <div className="pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setEditingOrder(null)}
+                    className="w-full py-3.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs transition-colors"
+                  >
+                    Zamknij Podgląd
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                
+                {/* Date Selection (Dziś / Jutro / Pojutrze + Date Input) */}
+                <div className="bg-slate-950 p-3.5 rounded-2xl border border-slate-800 space-y-2">
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-400">
+                    1. Dzień Realizacji Mycia
+                  </label>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setModalScheduleDate(format(new Date(), 'yyyy-MM-dd'))}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                        modalScheduleDate === format(new Date(), 'yyyy-MM-dd')
+                          ? 'bg-sky-500 text-white shadow'
+                          : 'bg-slate-800 text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      Dziś
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setModalScheduleDate(format(addDays(new Date(), 1), 'yyyy-MM-dd'))}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                        modalScheduleDate === format(addDays(new Date(), 1), 'yyyy-MM-dd')
+                          ? 'bg-sky-500 text-white shadow'
+                          : 'bg-slate-800 text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      Jutro
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setModalScheduleDate(format(addDays(new Date(), 2), 'yyyy-MM-dd'))}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                        modalScheduleDate === format(addDays(new Date(), 2), 'yyyy-MM-dd')
+                          ? 'bg-sky-500 text-white shadow'
+                          : 'bg-slate-800 text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      Pojutrze
+                    </button>
+                    <input
+                      type="date"
+                      value={modalScheduleDate}
+                      onChange={(e) => setModalScheduleDate(e.target.value)}
+                      className="px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-700 text-white text-xs font-bold focus:border-sky-500"
+                    />
+                  </div>
+                </div>
+
+                {/* Employee Selection (Restricted to active shift staff) */}
                 <div>
                   <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">
-                    Czas Trwania (min)
+                    2. Przypisany Pracownik Myjni (ze zmiany)
                   </label>
-                  <input
-                    type="number"
-                    value={modalDuration}
-                    onChange={(e) => setModalDuration(parseInt(e.target.value, 10) || 30)}
-                    step="5"
-                    className="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-700 text-white font-mono text-base font-bold focus:outline-none focus:border-sky-500"
-                  />
-                  <span className="text-[10px] text-slate-500 mt-1 block">
-                    Kategoria: {editingOrder.category?.name}
-                  </span>
+                  <select
+                    value={modalEmployeeId}
+                    onChange={(e) => setModalEmployeeId(e.target.value)}
+                    className="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-700 text-white font-bold text-sm focus:outline-none focus:border-sky-500"
+                  >
+                    {(activeEmployees.length > 0 ? activeEmployees : employees).map(e => (
+                      <option key={e.id} value={e.id}>{e.name} ({e.shortName})</option>
+                    ))}
+                  </select>
                 </div>
+
+                {/* Time Selection */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="block text-xs font-bold uppercase tracking-wider text-slate-400">
+                        Godzina Startu
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => setModalScheduleTime(getRoundedCurrentTime(30))}
+                        className="text-[10px] font-bold text-sky-400 hover:text-sky-300 px-1.5 py-0.5 rounded bg-sky-500/15"
+                      >
+                        Teraz ({getRoundedCurrentTime(30)})
+                      </button>
+                    </div>
+                    <input
+                      type="time"
+                      value={modalScheduleTime}
+                      onChange={(e) => setModalScheduleTime(e.target.value)}
+                      className="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-700 text-white font-mono text-base font-bold focus:outline-none focus:border-sky-500"
+                    />
+                    {/* Quick time helpers */}
+                    <div className="flex items-center gap-1.5 mt-2">
+                      <button
+                        type="button"
+                        onClick={() => setModalScheduleTime(getRoundedCurrentTime(30))}
+                        className="text-[10px] px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold"
+                      >
+                        Teraz
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const [h, m] = (modalScheduleTime || getRoundedCurrentTime(30)).split(':').map(Number);
+                          const d = new Date();
+                          d.setHours(h, m + 30, 0, 0);
+                          setModalScheduleTime(format(d, 'HH:mm'));
+                        }}
+                        className="text-[10px] px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold"
+                      >
+                        +30m
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const [h, m] = (modalScheduleTime || getRoundedCurrentTime(30)).split(':').map(Number);
+                          const d = new Date();
+                          d.setHours(h + 1, m, 0, 0);
+                          setModalScheduleTime(format(d, 'HH:mm'));
+                        }}
+                        className="text-[10px] px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold"
+                      >
+                        +1h
+                      </button>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">
+                      Czas Trwania (min)
+                    </label>
+                    <input
+                      type="number"
+                      value={modalDuration}
+                      onChange={(e) => setModalDuration(parseInt(e.target.value, 10) || 30)}
+                      step="5"
+                      className="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-700 text-white font-mono text-base font-bold focus:outline-none focus:border-sky-500"
+                    />
+                    <span className="text-[10px] text-slate-500 mt-1 block">
+                      Kategoria: {editingOrder.category?.name}
+                    </span>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="flex items-center gap-2 p-3 rounded-xl bg-slate-950 border border-slate-800 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={modalOverCapacity}
+                      onChange={(e) => setModalOverCapacity(e.target.checked)}
+                      className="w-4 h-4 rounded text-sky-500 focus:ring-0"
+                    />
+                    <span className="text-xs text-slate-300 font-semibold">
+                      Zezwól na dodanie ponad limit przepustowości (Override)
+                    </span>
+                  </label>
+                </div>
+
+                <div className="flex items-center gap-3 pt-3">
+                  <button
+                    type="button"
+                    onClick={() => setEditingOrder(null)}
+                    className="flex-1 py-3.5 rounded-xl bg-slate-800 text-slate-300 font-bold text-xs"
+                  >
+                    Anuluj
+                  </button>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const [h, m] = modalScheduleTime.split(':').map(Number);
+                      const startDate = new Date(modalScheduleDate);
+                      startDate.setHours(h, m, 0, 0);
+
+                      await scheduleOrder(editingOrder.id, {
+                        scheduledStartTime: startDate.toISOString(),
+                        durationMin: modalDuration,
+                        assignedEmployeeId: modalEmployeeId,
+                        isOverCapacity: modalOverCapacity,
+                      });
+
+                      // If scheduled to another date, switch to that date to show the user where it landed
+                      if (modalScheduleDate !== currentDate) {
+                        setCurrentDate(modalScheduleDate);
+                      }
+
+                      setEditingOrder(null);
+                      fetchDayOrders();
+                    }}
+                    className="flex-1 py-3.5 rounded-xl bg-sky-500 hover:bg-sky-400 text-white font-bold text-xs shadow-lg shadow-sky-500/25"
+                  >
+                    Zapisz Zmiany
+                  </button>
+                </div>
+
               </div>
-
-              <div>
-                <label className="flex items-center gap-2 p-3 rounded-xl bg-slate-950 border border-slate-800 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={modalOverCapacity}
-                    onChange={(e) => setModalOverCapacity(e.target.checked)}
-                    className="w-4 h-4 rounded text-sky-500 focus:ring-0"
-                  />
-                  <span className="text-xs text-slate-300 font-semibold">
-                    Zezwól na dodanie ponad limit przepustowości (Override)
-                  </span>
-                </label>
-              </div>
-
-              <div className="flex items-center gap-3 pt-3">
-                <button
-                  type="button"
-                  onClick={() => setEditingOrder(null)}
-                  className="flex-1 py-3.5 rounded-xl bg-slate-800 text-slate-300 font-bold text-xs"
-                >
-                  Anuluj
-                </button>
-                <button
-                  type="button"
-                  onClick={async () => {
-                    const [h, m] = modalScheduleTime.split(':').map(Number);
-                    const startDate = new Date(modalScheduleDate);
-                    startDate.setHours(h, m, 0, 0);
-
-                    await scheduleOrder(editingOrder.id, {
-                      scheduledStartTime: startDate.toISOString(),
-                      durationMin: modalDuration,
-                      assignedEmployeeId: modalEmployeeId,
-                      isOverCapacity: modalOverCapacity,
-                    });
-
-                    // If scheduled to another date, switch to that date to show the user where it landed
-                    if (modalScheduleDate !== currentDate) {
-                      setCurrentDate(modalScheduleDate);
-                    }
-
-                    setEditingOrder(null);
-                    fetchDayOrders();
-                  }}
-                  className="flex-1 py-3.5 rounded-xl bg-sky-500 hover:bg-sky-400 text-white font-bold text-xs shadow-lg shadow-sky-500/25"
-                >
-                  Zapisz Zmiany
-                </button>
-              </div>
-
-            </div>
+            )}
           </div>
         </div>
       )}

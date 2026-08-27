@@ -2,6 +2,15 @@
 
 import { prisma } from '@/lib/prisma';
 import { revalidatePath } from 'next/cache';
+import { getCurrentUser } from '@/actions/auth';
+
+async function checkPlannerPermission() {
+  const user = await getCurrentUser();
+  if (user && user.role !== 'WASHER' && user.role !== 'ADMIN') {
+    return { allowed: false, error: 'Brak uprawnień. Tylko stanowisko myjni oraz kierownik mogą modyfikować terminarz w planerze.' };
+  }
+  return { allowed: true };
+}
 
 export interface CreateOrderInput {
   licensePlate: string;
@@ -162,6 +171,9 @@ export async function updateOrderStatus(
   newStatus: 'PLANNED' | 'IN_PROGRESS' | 'READY' | 'COMPLETED' | 'CANCELLED'
 ) {
   try {
+    const auth = await checkPlannerPermission();
+    if (!auth.allowed) return { success: false, error: auth.error };
+
     const dataToUpdate: any = { status: newStatus };
 
     if (newStatus === 'IN_PROGRESS') {
@@ -201,6 +213,9 @@ export async function scheduleOrder(
   }
 ) {
   try {
+    const auth = await checkPlannerPermission();
+    if (!auth.allowed) return { success: false, error: auth.error };
+
     const current = await prisma.washOrder.findUnique({
       where: { id: orderId },
     });
@@ -242,6 +257,9 @@ export async function quickFinishOrder(orderId: string) {
 
 export async function addOrderNote(orderId: string, note: string) {
   try {
+    const auth = await checkPlannerPermission();
+    if (!auth.allowed) return { success: false, error: auth.error };
+
     const trimmed = note.trim();
     const updated = await prisma.washOrder.update({
       where: { id: orderId },
@@ -267,6 +285,9 @@ export async function addOrderNote(orderId: string, note: string) {
 // Zakończenie mycia z opcjonalną notatką od myjni (status READY)
 export async function finishOrderWithNote(orderId: string, note?: string) {
   try {
+    const auth = await checkPlannerPermission();
+    if (!auth.allowed) return { success: false, error: auth.error };
+
     const trimmed = note?.trim();
     const dataToUpdate: any = {
       status: 'READY',
@@ -297,6 +318,9 @@ export async function finishOrderWithNote(orderId: string, note?: string) {
 
 export async function deleteOrder(orderId: string) {
   try {
+    const auth = await checkPlannerPermission();
+    if (!auth.allowed) return { success: false, error: auth.error };
+
     await prisma.washOrder.delete({
       where: { id: orderId },
     });
