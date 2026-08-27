@@ -7,7 +7,11 @@
 !.yarn/plugins
 !.yarn/releases
 !.yarn/versions
-
+**/venv
+**/__pycache__
+.git
+node_modules
+.next
 # === Testing ===
 /coverage
 .nyc_output
