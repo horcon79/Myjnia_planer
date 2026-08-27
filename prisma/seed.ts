@@ -3,7 +3,17 @@ import { PrismaClient } from '@prisma/client';
 const prisma = new PrismaClient();
 
 async function main() {
-  console.log('Seeding initial data...');
+  console.log('Sprawdzanie stanu bazy danych...');
+
+  const depCount = await prisma.department.count();
+  const settingsCount = await prisma.appSetting.count();
+
+  if (depCount > 0 && settingsCount > 0) {
+    console.log(`Baza danych zawiera już dane (${depCount} działów, ${settingsCount} ustawień). Pomijam wgrywanie danych startowych, aby nie nadpisać konfiguracji.`);
+    return;
+  }
+
+  console.log('Inicjalizacja nowej bazy danych danymi startowymi...');
 
   // 1. Settings
   const settings = [
@@ -17,7 +27,7 @@ async function main() {
   for (const s of settings) {
     await prisma.appSetting.upsert({
       where: { key: s.key },
-      update: { value: s.value },
+      update: {}, // NIGDY nie nadpisuj ustawień jeśli już istnieją
       create: s,
     });
   }
@@ -36,7 +46,7 @@ async function main() {
   for (const d of departments) {
     const dep = await prisma.department.upsert({
       where: { slug: d.slug },
-      update: d,
+      update: {}, // NIGDY nie nadpisuj zmienionych przez użytkownika PIN-ów ani nazw
       create: d,
     });
     createdDeps[d.slug] = dep.id;
@@ -117,108 +127,44 @@ async function main() {
     }
   }
 
-  // 5. Sample Today Orders
-  const today = new Date();
-  const setHour = (h: number, m: number = 0) => {
-    const d = new Date(today);
-    d.setHours(h, m, 0, 0);
-    return d;
-  };
+  // 5. Sample Orders (opcjonalne, TYLKO jeśli jawnie włączone w env: SEED_SAMPLE_ORDERS=true)
+  if (process.env.SEED_SAMPLE_ORDERS === 'true') {
+    const today = new Date();
+    const setHour = (h: number, m: number = 0) => {
+      const d = new Date(today);
+      d.setHours(h, m, 0, 0);
+      return d;
+    };
 
-  const sampleOrders = [
-    {
-      orderNumber: 'Z-101',
-      licensePlate: 'KR 8832A',
-      carModel: 'Omoda 5 1.6 T-GDI (Czarna)',
-      carType: 'PASSENGER',
-      departmentId: createdDeps['omoda'],
-      categoryId: createdCats['Przygotowanie nowego auta do wydania'],
-      targetReadyTime: setHour(15, 0),
-      scheduledStartTime: setHour(8, 0),
-      scheduledEndTime: setHour(10, 30),
-      durationMin: 150,
-      assignedEmployeeId: createdEmps[0],
-      status: 'IN_PROGRESS',
-      notes: 'Wydanie z klientem o 15:30. Zwrócić uwagę na felgi 18".',
-      contactPerson: 'Kamil (Salon Omoda)',
-      startedAt: setHour(8, 5),
-    },
-    {
-      orderNumber: 'Z-102',
-      licensePlate: 'WI 9044M',
-      carModel: 'Jaecoo 7 AWD (Biała Perła)',
-      carType: 'PASSENGER',
-      departmentId: createdDeps['handlowy'],
-      categoryId: createdCats['Mycie standardowe'],
-      targetReadyTime: setHour(11, 0),
-      scheduledStartTime: setHour(9, 0),
-      scheduledEndTime: setHour(9, 30),
-      durationMin: 30,
-      assignedEmployeeId: createdEmps[1],
-      status: 'READY',
-      notes: 'Jazda próbna o 11:15.',
-      contactPerson: 'Michał (Handlowy)',
-      startedAt: setHour(8, 55),
-      completedAt: setHour(9, 25),
-    },
-    {
-      orderNumber: 'Z-103',
-      licensePlate: 'KR 1122K',
-      carModel: 'Hyundai Tucson 1.6',
-      carType: 'PASSENGER',
-      departmentId: createdDeps['serwis'],
-      categoryId: createdCats['Mycie serwisowe / szybkie'],
-      targetReadyTime: setHour(13, 0),
-      scheduledStartTime: setHour(10, 0),
-      scheduledEndTime: setHour(10, 20),
-      durationMin: 20,
-      assignedEmployeeId: createdEmps[1],
-      status: 'PLANNED',
-      notes: 'Po wymianie klocków i oleju.',
-      contactPerson: 'Doradca Paweł (Serwis)',
-    },
-    {
-      orderNumber: 'Z-104',
-      licensePlate: 'KRA 74900',
-      carModel: 'Renault Master Furgon L3H2',
-      carType: 'DELIVERY',
-      departmentId: createdDeps['uzywane'],
-      categoryId: createdCats['Mycie standardowe'],
-      targetReadyTime: setHour(14, 0),
-      scheduledStartTime: setHour(11, 0),
-      scheduledEndTime: setHour(11, 45),
-      durationMin: 45,
-      assignedEmployeeId: createdEmps[2],
-      status: 'PLANNED',
-      notes: 'Wysoki dach, mycie pistoletem ciśnieniowym z drabinki.',
-      contactPerson: 'Artur (Używane)',
-    },
-    {
-      orderNumber: 'Z-105',
-      licensePlate: 'KR 5500X',
-      carModel: 'Jaecoo 7 Demo',
-      carType: 'PASSENGER',
-      departmentId: createdDeps['omoda'],
-      categoryId: createdCats['Rozklejenie i mycie samochodu demo'],
-      targetReadyTime: setHour(17, 0),
-      scheduledStartTime: setHour(13, 0),
-      scheduledEndTime: setHour(15, 0),
-      durationMin: 120,
-      assignedEmployeeId: createdEmps[0],
-      status: 'PLANNED',
-      notes: 'Zdjęcie starych naklejek z drzwi bocznych.',
-      contactPerson: 'Kamil (Salon)',
-    },
-  ];
+    const sampleOrders = [
+      {
+        orderNumber: 'Z-101',
+        licensePlate: 'KR 8832A',
+        carModel: 'Omoda 5 1.6 T-GDI (Czarna)',
+        carType: 'PASSENGER',
+        departmentId: createdDeps['omoda'],
+        categoryId: createdCats['Przygotowanie nowego auta do wydania'],
+        targetReadyTime: setHour(15, 0),
+        scheduledStartTime: setHour(8, 0),
+        scheduledEndTime: setHour(10, 30),
+        durationMin: 150,
+        assignedEmployeeId: createdEmps[0],
+        status: 'IN_PROGRESS',
+        notes: 'Wydanie z klientem o 15:30. Zwrócić uwagę na felgi 18".',
+        contactPerson: 'Kamil (Salon Omoda)',
+        startedAt: setHour(8, 5),
+      },
+    ];
 
-  for (const o of sampleOrders) {
-    const existing = await prisma.washOrder.findFirst({ where: { orderNumber: o.orderNumber } });
-    if (!existing) {
-      await prisma.washOrder.create({ data: o });
+    for (const o of sampleOrders) {
+      const existing = await prisma.washOrder.findFirst({ where: { orderNumber: o.orderNumber } });
+      if (!existing) {
+        await prisma.washOrder.create({ data: o });
+      }
     }
   }
 
-  console.log('Seed completed successfully!');
+  console.log('Inicjalizacja danych startowych zakończona pomyślnie!');
 }
 
 main()
