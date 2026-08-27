@@ -68,6 +68,8 @@ Desktop.ini
 /.playwright-mcp
 # == dane synchronizacji z DMS (dane osobowe) ==
 /zlecenia_sync
-/zlecenia_sync
+
+# == strona promocyjna (osobny projekt) ==
+/landing_page/
 
 
