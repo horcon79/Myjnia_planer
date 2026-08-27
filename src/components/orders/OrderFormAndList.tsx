@@ -644,11 +644,12 @@ export default function OrderFormAndList({
                             <span className="text-[10px] font-mono text-slate-400">{r.orderNumber}</span>
                           </div>
                           <p className="text-xs text-slate-300 truncate">{r.brand} {r.model}</p>
-                          <p className="text-[10px] text-slate-500 truncate">
-                            {r.client || '—'}
-                            {r.openDate ? ` • ${r.openDate}` : ''}
+                          <p className="text-[10px] text-slate-500 truncate flex items-center gap-1 font-mono">
+                            {r.vin && <span>VIN: {r.vin}</span>}
+                            {r.vin && r.openDate && <span>•</span>}
+                            {r.openDate && <span>{r.openDate}</span>}
                             {r.alreadyReported && (
-                              <span className="ml-1.5 text-emerald-400 font-bold">✓ już zgłoszone</span>
+                              <span className="ml-1.5 text-emerald-400 font-bold font-sans">✓ już zgłoszone</span>
                             )}
                           </p>
                         </button>

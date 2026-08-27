@@ -10,7 +10,6 @@ export interface DmsOrder {
   brand: string;           // marka (fallback "Mercedes-Benz")
   model: string;           // model
   vin: string | null;      // nr_nadwozia
-  client: string | null;   // klient (K_NAZWA)
 }
 
 export interface DmsSnapshot {

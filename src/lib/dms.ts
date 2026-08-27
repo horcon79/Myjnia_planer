@@ -47,7 +47,6 @@ export async function readDmsSnapshot(): Promise<DmsSnapshot> {
       marka?: unknown;
       model?: unknown;
       vin?: unknown;
-      klient?: unknown;
     };
 
     const orders: DmsOrder[] = Array.isArray(data.zlecenia)
@@ -65,7 +64,6 @@ export async function readDmsSnapshot(): Promise<DmsSnapshot> {
             brand: String(z?.marka ?? 'Mercedes-Benz'),
             model: String(z?.model ?? ''),
             vin,
-            client: z?.klient ? String(z.klient) : null,
           };
         })
       : [];
