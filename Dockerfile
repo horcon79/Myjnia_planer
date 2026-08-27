@@ -10,8 +10,12 @@ RUN npm ci
 FROM node:22-alpine AS builder
 WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
+# Zainstaluj git, aby móc wyliczyć wersję z liczby commitów podczas budowania obrazu
+RUN apk add --no-cache git
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
+# Zezwól na odczyt repozytorium git wewnątrz kontenera (omija problem dubious ownership)
+RUN git config --global --add safe.directory '*' || true
 # Wygeneruj klienta Prisma i zbuduj aplikację
 RUN npx prisma generate
 RUN npm run build
