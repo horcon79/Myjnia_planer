@@ -1,6 +1,9 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { cookies } from "next/headers";
 import "./globals.css";
+import { I18nProvider } from "@/i18n/I18nProvider";
+import { DEFAULT_LOCALE, LOCALE_COOKIE, isSupportedLocale, toHtmlLang } from "@/i18n/config";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -13,8 +16,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Myjnia Planer - Salon & Serwis",
-  description: "Wewnętrzny system zarządzania i planowania myjni dealerskiej",
+  title: "Myjnia Planer / Car Wash Planner",
+  description: "System for managing and planning dealership car wash operations",
   manifest: "/manifest.json",
   appleWebApp: {
     capable: true,
@@ -31,18 +34,22 @@ export const viewport: Viewport = {
   userScalable: false,
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  const cookieStore = await cookies();
+  const cookieLocale = cookieStore.get(LOCALE_COOKIE)?.value;
+  const initialLocale = isSupportedLocale(cookieLocale) ? cookieLocale : DEFAULT_LOCALE;
+
   return (
     <html
-      lang="pl"
+      lang={toHtmlLang(initialLocale)}
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full bg-slate-950 text-slate-100 flex flex-col antialiased selection:bg-sky-500 selection:text-white">
-        {children}
+        <I18nProvider initialLocale={initialLocale}>{children}</I18nProvider>
       </body>
     </html>
   );
