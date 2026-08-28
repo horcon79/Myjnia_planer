@@ -34,6 +34,7 @@ import {
 } from 'lucide-react';
 import { format, addDays, isAfter, isBefore } from 'date-fns';
 import { pl } from 'date-fns/locale';
+import TimeSlotAvailabilityGrid from './TimeSlotAvailabilityGrid';
 
 interface OrderFormAndListProps {
   currentUser: SessionUser | null;
@@ -53,6 +54,8 @@ export default function OrderFormAndList({
   // Opening & closing hours from settings (e.g. 7 to 18)
   const workStartHour = parseInt(settings.WORK_START_HOUR || '7', 10);
   const workEndHour = parseInt(settings.WORK_END_HOUR || '18', 10);
+  const maxSimultaneousCars = parseInt(settings.MAX_SIMULTANEOUS_CARS || '3', 10);
+  const deliveryCarWeight = parseFloat(settings.DELIVERY_CAR_WEIGHT || '1.5');
 
   // Check if department should be locked to the logged-in department
   const userDeptObj = departments.find(d => d.slug === currentUser?.slug);
@@ -108,6 +111,7 @@ export default function OrderFormAndList({
 
   // List & Polling State
   const [orders, setOrders] = useState<any[]>([]);
+  const [targetDateOrders, setTargetDateOrders] = useState<any[]>([]);
   const [selectedDate, setSelectedDate] = useState(targetReadyDate);
   const [isLoadingList, setIsLoadingList] = useState(true);
   const [filterDept, setFilterDept] = useState<string>(isDeptLocked ? defaultDeptId : 'ALL');
@@ -181,6 +185,23 @@ export default function OrderFormAndList({
     }, 8000); // Polling co 8s
     return () => clearInterval(interval);
   }, [selectedDate]);
+
+  // Synchronizacja zleceń dla targetReadyDate (potrzebna do siatki dostępności)
+  useEffect(() => {
+    if (targetReadyDate === selectedDate) {
+      setTargetDateOrders(orders);
+    } else {
+      let cancelled = false;
+      getOrdersForDate(targetReadyDate).then((res) => {
+        if (!cancelled && res.success && res.orders) {
+          setTargetDateOrders(res.orders);
+        }
+      });
+      return () => {
+        cancelled = true;
+      };
+    }
+  }, [targetReadyDate, selectedDate, orders]);
 
   // DMS: ładuj status integracji przy zmianie działu
   useEffect(() => {
@@ -847,7 +868,7 @@ export default function OrderFormAndList({
                 </div>
 
                 {/* Forward looking quick chips */}
-                <div className="flex flex-wrap gap-1.5">
+                <div className="flex flex-wrap gap-1.5 mb-3">
                   <button
                     type="button"
                     onClick={() => handleQuickTime(45)}
@@ -884,6 +905,23 @@ export default function OrderFormAndList({
                     Na 16:00
                   </button>
                 </div>
+
+                {/* Mini-Plan Dostępności Slotów */}
+                <TimeSlotAvailabilityGrid
+                  orders={targetDateOrders}
+                  targetReadyDate={targetReadyDate}
+                  selectedHour={targetHour}
+                  onSelectHour={(newHour) => setTargetHour(newHour)}
+                  serviceDurationMin={currentCat?.defaultDurationMin || 30}
+                  workStartHour={workStartHour}
+                  workEndHour={workEndHour}
+                  maxSimultaneousCars={maxSimultaneousCars}
+                  deliveryCarWeight={deliveryCarWeight}
+                  onSwitchToTomorrow={() => {
+                    setTargetReadyDate(tomorrowStr);
+                    setTargetHour('09:00');
+                  }}
+                />
               </div>
             </div>
 
