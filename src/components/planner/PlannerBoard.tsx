@@ -134,9 +134,27 @@ export default function PlannerBoard({
       const d = editingOrder.scheduledStartTime
         ? format(new Date(editingOrder.scheduledStartTime), 'yyyy-MM-dd')
         : currentDate;
-      const t = editingOrder.scheduledStartTime
-        ? format(new Date(editingOrder.scheduledStartTime), 'HH:mm')
-        : getRoundedCurrentTime(30);
+
+      let t: string;
+      if (editingOrder.scheduledStartTime) {
+        t = format(new Date(editingOrder.scheduledStartTime), 'HH:mm');
+      } else if (editingOrder.targetReadyTime) {
+        const targetDate = new Date(editingOrder.targetReadyTime);
+        const duration = editingOrder.durationMin || 30;
+        const proposedStart = new Date(targetDate.getTime() - duration * 60000);
+        const pHour = proposedStart.getHours();
+        const pMin = proposedStart.getMinutes() < 30 ? '00' : '30';
+        if (pHour >= workStartHour && pHour <= workEndHour) {
+          t = `${pHour.toString().padStart(2, '0')}:${pMin}`;
+        } else {
+          t = `${workStartHour.toString().padStart(2, '0')}:00`;
+        }
+      } else {
+        t = (d === format(new Date(), 'yyyy-MM-dd'))
+          ? getRoundedCurrentTime(30)
+          : `${workStartHour.toString().padStart(2, '0')}:00`;
+      }
+
       setModalScheduleDate(d);
       setModalScheduleTime(t);
       setModalDuration(editingOrder.durationMin || 30);
@@ -158,7 +176,7 @@ export default function PlannerBoard({
       schedDate.setHours(h, m, 0, 0);
       const schedEnd = new Date(schedDate.getTime() + modalDuration * 60000);
       const targetReady = new Date(editingOrder.targetReadyTime);
-      return schedEnd.getTime() > targetReady.getTime() || schedDate.getTime() > targetReady.getTime();
+      return schedEnd.getTime() > targetReady.getTime();
     } catch {
       return false;
     }
@@ -272,6 +290,8 @@ export default function PlannerBoard({
 
   // Auto-deactivate employees whose shift has exceeded AUTO_DEACTIVATE_MS (9h)
   useEffect(() => {
+    if (!isToday) return; // Auto-wygaszanie działa tylko dla dnia dzisiejszego
+
     const checkAutoDeactivate = () => {
       const now = Date.now();
       setActiveEmpIds(prev => {
@@ -301,7 +321,7 @@ export default function PlannerBoard({
     const interval = setInterval(checkAutoDeactivate, 60000);
     checkAutoDeactivate();
     return () => clearInterval(interval);
-  }, [shiftStartTimes, currentDate]);
+  }, [shiftStartTimes, currentDate, isToday]);
 
   // Click on employee chip → ask for confirmation (prevents accidental taps)
   const requestShiftChange = (empId: string, currentlyActive: boolean) => {
@@ -328,27 +348,30 @@ export default function PlannerBoard({
       return next;
     });
 
-    if (action === 'start') {
-      setShiftStartTimes(prev => {
-        const next = { ...prev, [id]: Date.now() };
-        try {
-          localStorage.setItem(`myjnia_shift_times_${currentDate}`, JSON.stringify(next));
-        } catch (e) {
-          console.error(e);
-        }
-        return next;
-      });
-    } else {
-      setShiftStartTimes(prev => {
-        const next = { ...prev };
-        delete next[id];
-        try {
-          localStorage.setItem(`myjnia_shift_times_${currentDate}`, JSON.stringify(next));
-        } catch (e) {
-          console.error(e);
-        }
-        return next;
-      });
+    // Czas pracy naliczamy i zapisujemy WYŁĄCZNIE dla dnia dzisiejszego (isToday)
+    if (isToday) {
+      if (action === 'start') {
+        setShiftStartTimes(prev => {
+          const next = { ...prev, [id]: Date.now() };
+          try {
+            localStorage.setItem(`myjnia_shift_times_${currentDate}`, JSON.stringify(next));
+          } catch (e) {
+            console.error(e);
+          }
+          return next;
+        });
+      } else {
+        setShiftStartTimes(prev => {
+          const next = { ...prev };
+          delete next[id];
+          try {
+            localStorage.setItem(`myjnia_shift_times_${currentDate}`, JSON.stringify(next));
+          } catch (e) {
+            console.error(e);
+          }
+          return next;
+        });
+      }
     }
 
     setShiftConfirmEmp(null);
@@ -378,35 +401,37 @@ export default function PlannerBoard({
     const nextActive = shiftSelectionIds;
     setActiveEmpIds(nextActive);
 
-    const now = Date.now();
-    setShiftStartTimes(prev => {
-      const nextTimes: Record<string, number> = { ...prev };
-      // add newly activated employees
-      nextActive.forEach(id => {
-        if (!nextTimes[id]) {
-          nextTimes[id] = now;
-        }
-      });
-      // remove deactivated employees
-      Object.keys(nextTimes).forEach(id => {
-        if (!nextActive.includes(id)) {
-          delete nextTimes[id];
-        }
-      });
-
-      try {
-        localStorage.setItem(`myjnia_shift_employees_${currentDate}`, JSON.stringify(nextActive));
-        localStorage.setItem(`myjnia_shift_times_${currentDate}`, JSON.stringify(nextTimes));
-      } catch (e) {
-        console.error(e);
-      }
-      return nextTimes;
-    });
-
     try {
       localStorage.setItem(`myjnia_shift_employees_${currentDate}`, JSON.stringify(nextActive));
     } catch (e) {
       console.error(e);
+    }
+
+    // Czas pracy naliczamy i startujemy WYŁĄCZNIE dla dnia dzisiejszego (isToday)
+    if (isToday) {
+      const now = Date.now();
+      setShiftStartTimes(prev => {
+        const nextTimes: Record<string, number> = { ...prev };
+        // add newly activated employees
+        nextActive.forEach(id => {
+          if (!nextTimes[id]) {
+            nextTimes[id] = now;
+          }
+        });
+        // remove deactivated employees
+        Object.keys(nextTimes).forEach(id => {
+          if (!nextActive.includes(id)) {
+            delete nextTimes[id];
+          }
+        });
+
+        try {
+          localStorage.setItem(`myjnia_shift_times_${currentDate}`, JSON.stringify(nextTimes));
+        } catch (e) {
+          console.error(e);
+        }
+        return nextTimes;
+      });
     }
 
     setShowShiftStartModal(false);
@@ -866,8 +891,8 @@ export default function PlannerBoard({
 
           {employees.map((emp) => {
             const isActive = activeEmpIds.includes(emp.id);
-            const overShift = isActive && isOverShift(emp.id);
-            const elapsed = isActive && shiftStartTimes[emp.id] ? formatElapsedTime(shiftStartTimes[emp.id]) : null;
+            const overShift = isToday && isActive && isOverShift(emp.id);
+            const elapsed = isToday && isActive && shiftStartTimes[emp.id] ? formatElapsedTime(shiftStartTimes[emp.id]) : null;
 
             return canEdit ? (
               <button
@@ -880,7 +905,11 @@ export default function PlannerBoard({
                       : 'bg-slate-800 border-sky-500 text-white shadow'
                     : 'bg-slate-950/60 border-slate-800 text-slate-500 hover:text-slate-300 hover:border-slate-700'
                 }`}
-                title={isActive ? `Zakończ zmianę (${emp.name})` : `Rozpocznij zmianę dla: ${emp.name}`}
+                title={
+                  isToday
+                    ? isActive ? `Zakończ zmianę (${emp.name})` : `Rozpocznij zmianę dla: ${emp.name}`
+                    : isActive ? `Zaplanowany w grafiku na ten dzień (${emp.name})` : `Kliknij, aby przypisać do grafiku na ten dzień: ${emp.name}`
+                }
               >
                 <div
                   className="w-2.5 h-2.5 rounded-full flex-shrink-0"
@@ -1962,14 +1991,25 @@ export default function PlannerBoard({
 
             {/* Delay Warning Banner in Modal */}
             {isModalScheduleLate && (
-              <div className="mb-4 p-3.5 rounded-2xl bg-rose-950/80 border border-rose-500 text-rose-200 text-xs space-y-1 shadow-lg animate-pulse">
+              <div className="mb-4 p-3.5 rounded-2xl bg-rose-950/80 border border-rose-500 text-rose-200 text-xs space-y-1.5 shadow-lg animate-pulse">
                 <div className="flex items-center gap-2 font-black text-rose-300">
                   <AlertTriangle className="w-4 h-4 text-rose-400 flex-shrink-0" />
-                  <span>Uwaga: Data mycia późniejsza niż termin wydania pojazdu!</span>
+                  <span>Uwaga: Zakończenie mycia nastąpi po terminie wydania!</span>
                 </div>
                 <p className="text-[11px] text-rose-200/90 leading-relaxed">
-                  Planowany termin mycia to <strong>{format(new Date(`${modalScheduleDate}T${modalScheduleTime}`), 'd MMMM HH:mm', { locale: pl })}</strong>, a dział wnioskował gotowość na <strong>{format(new Date(editingOrder.targetReadyTime), 'd MMMM HH:mm', { locale: pl })}</strong>.<br/>
-                  W module <em>Zgłoś Mycie</em> oraz na <em>Ekranie Statusu</em> pojawi się powiadomienie o opóźnieniu.
+                  Usługa <strong>{editingOrder.category?.name || 'Mycie'}</strong> trwa <strong>{modalDuration} min</strong>.
+                  Zaplanowany czas pracy: <strong>{modalScheduleTime} – {(() => {
+                    try {
+                      const [h, m] = modalScheduleTime.split(':').map(Number);
+                      const baseDate = new Date(modalScheduleDate);
+                      baseDate.setHours(h, m + modalDuration, 0, 0);
+                      return format(baseDate, 'HH:mm');
+                    } catch {
+                      return '—';
+                    }
+                  })()}</strong> ({format(new Date(modalScheduleDate), 'd MMM', { locale: pl })}).
+                  Wnioskowana gotowość: <strong>{format(new Date(editingOrder.targetReadyTime), 'HH:mm (d MMM)', { locale: pl })}</strong>.<br/>
+                  W module <em>Zgłoś Mycie</em> oraz na <em>Tablicy Statusów</em> wyświetli się informacja o przesunięciu terminu.
                 </p>
               </div>
             )}

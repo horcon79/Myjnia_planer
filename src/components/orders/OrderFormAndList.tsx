@@ -1112,14 +1112,16 @@ export default function OrderFormAndList({
                     {order.scheduledStartTime &&
                       (new Date(order.scheduledStartTime).getTime() + (order.durationMin || 30) * 60000) > new Date(order.targetReadyTime).getTime() &&
                       order.status !== 'COMPLETED' && (
-                        <div className="mb-3 p-3 rounded-xl bg-rose-950/80 border border-rose-500 text-rose-200 text-xs font-bold flex items-start gap-2 shadow-lg animate-pulse">
+                        <div className="mb-3 p-3.5 rounded-2xl bg-rose-950/80 border border-rose-500 text-rose-200 text-xs font-bold flex items-start gap-2.5 shadow-lg animate-pulse">
                           <AlertTriangle className="w-4 h-4 text-rose-400 flex-shrink-0 mt-0.5" />
                           <div>
                             <span className="text-rose-300 block font-black uppercase">
-                              ⚠️ Uwaga: data mycia późniejsza niż data wydania!
+                              ⚠️ Uwaga: Zakończenie mycia nastąpi po terminie wydania!
                             </span>
-                            <span className="text-[11px] text-rose-200 font-normal block mt-0.5">
-                              Myjnia zaplanowała start na: <strong>{format(new Date(order.scheduledStartTime), 'd MMM HH:mm', { locale: pl })}</strong> (wnioskowano gotowość na: <strong>{format(new Date(order.targetReadyTime), 'd MMM HH:mm', { locale: pl })}</strong>).
+                            <span className="text-[11px] text-rose-200/90 font-normal block mt-1 leading-relaxed">
+                              Usługa <strong>{order.category?.name || 'Mycie'}</strong> trwa <strong>{order.durationMin || 30} min</strong>.
+                              Zaplanowany czas pracy myjni: <strong>{format(new Date(order.scheduledStartTime), 'HH:mm', { locale: pl })} – {format(new Date(new Date(order.scheduledStartTime).getTime() + (order.durationMin || 30) * 60000), 'HH:mm', { locale: pl })}</strong> ({format(new Date(order.scheduledStartTime), 'd MMM', { locale: pl })}).
+                              Wnioskowana gotowość: <strong>{format(new Date(order.targetReadyTime), 'HH:mm (d MMM)', { locale: pl })}</strong>.
                             </span>
                           </div>
                         </div>

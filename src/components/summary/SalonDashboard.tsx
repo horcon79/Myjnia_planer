@@ -246,9 +246,9 @@ export default function SalonDashboard({
                   {/* Delay Warning Notification on TV Dashboard */}
                   {ord.scheduledStartTime && 
                     (new Date(ord.scheduledStartTime).getTime() + (ord.durationMin || 30) * 60000) > new Date(ord.targetReadyTime).getTime() && (
-                    <div className="mb-2 px-2 py-1 rounded-lg bg-rose-500/25 border border-rose-500/60 text-rose-300 text-[10px] font-black uppercase flex items-center gap-1.5 animate-pulse">
+                    <div className="mb-2 px-2.5 py-1 rounded-lg bg-rose-500/25 border border-rose-500/60 text-rose-300 text-[10px] font-bold flex items-center gap-1.5 animate-pulse">
                       <AlertTriangle className="w-3.5 h-3.5 text-rose-400 flex-shrink-0" />
-                      <span>Uwaga: Mycie po terminie wydania!</span>
+                      <span>Koniec: {format(new Date(new Date(ord.scheduledStartTime).getTime() + (ord.durationMin || 30) * 60000), 'HH:mm')} (cel: {format(new Date(ord.targetReadyTime), 'HH:mm')})</span>
                     </div>
                   )}
 
@@ -327,9 +327,9 @@ export default function SalonDashboard({
                   {/* Delay Warning Notification on TV Dashboard */}
                   {ord.scheduledStartTime && 
                     (new Date(ord.scheduledStartTime).getTime() + (ord.durationMin || 30) * 60000) > new Date(ord.targetReadyTime).getTime() && (
-                    <div className="mb-2 px-2 py-1 rounded-lg bg-rose-500/25 border border-rose-500/60 text-rose-300 text-[10px] font-black uppercase flex items-center gap-1.5 animate-pulse">
+                    <div className="mb-2 px-2.5 py-1 rounded-lg bg-rose-500/25 border border-rose-500/60 text-rose-300 text-[10px] font-bold flex items-center gap-1.5 animate-pulse">
                       <AlertTriangle className="w-3.5 h-3.5 text-rose-400 flex-shrink-0" />
-                      <span>Uwaga: Mycie po terminie wydania!</span>
+                      <span>Koniec: {format(new Date(new Date(ord.scheduledStartTime).getTime() + (ord.durationMin || 30) * 60000), 'HH:mm')} (cel: {format(new Date(ord.targetReadyTime), 'HH:mm')})</span>
                     </div>
                   )}
 
@@ -337,7 +337,7 @@ export default function SalonDashboard({
                     {ord.carModel || 'Pojazd salonowy'}
                   </p>
                   <p className="text-[11px] text-slate-400 mb-2">
-                    {ord.category?.name}
+                    {ord.category?.name} ({ord.durationMin || 30} min)
                   </p>
 
                   {ord.notes && (
