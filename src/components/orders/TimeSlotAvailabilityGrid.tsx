@@ -58,11 +58,20 @@ export default function TimeSlotAvailabilityGrid({
   // Stan zwinięcia/rozwinięcia nieaktywnych (przeszłych) godzin – domyślnie ZWINIĘTE (false)
   const [showPastSlots, setShowPastSlots] = useState(false);
 
-  // Najwcześniejszy wykonalny czas na dzisiaj (obecny czas + czas usługi + 15 min bufor technologiczny)
-  const minFeasibleDateToday = useMemo(() => {
-    const minTime = new Date(now.getTime() + (serviceDurationMin + 15) * 60000);
-    return minTime;
-  }, [now, serviceDurationMin]);
+  // Najwcześniejszy wykonalny czas gotowości:
+  // 1. Względem otwarcia myjni: workStartHour:00 + serviceDurationMin (np. 07:00 + 30 min = 07:30)
+  // 2. Względem dzisiejszej bieżącej godziny (dla isToday): now + serviceDurationMin + 15 min bufor
+  const minFeasibleDate = useMemo(() => {
+    const openingDate = new Date(`${targetReadyDate}T${workStartHour.toString().padStart(2, '0')}:00:00`);
+    const minFromOpening = new Date(openingDate.getTime() + serviceDurationMin * 60000);
+
+    if (isToday) {
+      const minFromNow = new Date(now.getTime() + (serviceDurationMin + 15) * 60000);
+      return new Date(Math.max(minFromOpening.getTime(), minFromNow.getTime()));
+    }
+
+    return minFromOpening;
+  }, [targetReadyDate, workStartHour, serviceDurationMin, isToday, now]);
 
   // Generowanie wszystkich slotów w godzinach pracy
   const allSlots: SlotInfo[] = useMemo(() => {
@@ -75,11 +84,8 @@ export default function TimeSlotAvailabilityGrid({
         const timeStr = `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
         const slotDate = new Date(`${targetReadyDate}T${timeStr}:00`);
 
-        let isPastOrTooEarly = false;
-        if (isToday) {
-          isPastOrTooEarly = slotDate < minFeasibleDateToday;
-        }
-
+        // Slot jest niedostępny, jeśli gotowość wymagałaby startu mycia przed otwarciem myjni (lub przed obecną chwilą dzisiaj)
+        const isPastOrTooEarly = slotDate < minFeasibleDate;
         const isClosed = h >= workEndHour && m > 0;
 
         // Obliczenie zajętości w tym oknie czasowym
@@ -140,7 +146,7 @@ export default function TimeSlotAvailabilityGrid({
     workEndHour,
     targetReadyDate,
     isToday,
-    minFeasibleDateToday,
+    minFeasibleDate,
     orders,
     deliveryCarWeight,
     maxSimultaneousCars,
@@ -164,7 +170,7 @@ export default function TimeSlotAvailabilityGrid({
         <div className="flex items-center gap-2">
           <Clock className="w-4 h-4 text-sky-400" />
           <span className="text-xs font-bold text-slate-200 uppercase tracking-wider">
-            Wolne sloty ({format(new Date(targetReadyDate), 'd MMMM', { locale: pl })})
+            Wolne sloty gotowości ({format(new Date(targetReadyDate), 'd MMMM', { locale: pl })})
           </span>
         </div>
 
@@ -214,7 +220,7 @@ export default function TimeSlotAvailabilityGrid({
 
             if (isDisabled) {
               cardBg = 'bg-slate-950/40 border-slate-900 text-slate-600 opacity-40 cursor-not-allowed';
-              badgeText = slot.isClosed ? 'Zamknięte' : 'Minęło';
+              badgeText = slot.isClosed ? 'Zamknięte' : isToday ? 'Minęło' : 'Przed otwarciem';
               badgeColor = 'text-slate-500 bg-slate-800/40 border-slate-800';
             } else if (isFullyBooked) {
               cardBg = 'bg-rose-950/20 border-rose-900/40 text-rose-300 hover:border-rose-700/60';

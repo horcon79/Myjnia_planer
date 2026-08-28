@@ -123,16 +123,26 @@ export default function OrderFormAndList({
   const dmsServiceCode = currentDeptObj?.dmsServiceCode?.trim() || null;
   const dmsEnabled = Boolean(currentDeptObj?.dmsEnabled && dmsServiceCode);
 
-  // Calculate earliest feasible ready time today based on selected service duration
-  const earliestFeasibleHourToday = useMemo(() => {
+  // Calculate earliest feasible ready time for selected date based on wash opening hour and service duration
+  const earliestFeasibleHourForSelectedDate = useMemo(() => {
     const serviceDuration = currentCat?.defaultDurationMin || 30;
-    // Add 15 min buffer to current time
-    const minTime = new Date(now.getTime() + (serviceDuration + 15) * 60000);
-    // Round to next 15 minutes
-    const mins = Math.ceil(minTime.getMinutes() / 15) * 15;
-    minTime.setMinutes(mins);
-    return format(minTime, 'HH:mm');
-  }, [currentCat, now]);
+    const openingReadyMinutes = workStartHour * 60 + serviceDuration;
+    const openingHour = Math.floor(openingReadyMinutes / 60).toString().padStart(2, '0');
+    const openingMin = (openingReadyMinutes % 60).toString().padStart(2, '0');
+    const openingReadyStr = `${openingHour}:${openingMin}`;
+
+    if (targetReadyDate === todayStr) {
+      const minTime = new Date(now.getTime() + (serviceDuration + 15) * 60000);
+      const mins = Math.ceil(minTime.getMinutes() / 15) * 15;
+      minTime.setMinutes(mins);
+      const todayStrTime = format(minTime, 'HH:mm');
+      return todayStrTime > openingReadyStr ? todayStrTime : openingReadyStr;
+    }
+
+    return openingReadyStr;
+  }, [currentCat, targetReadyDate, todayStr, now, workStartHour]);
+
+  const earliestFeasibleHourToday = earliestFeasibleHourForSelectedDate;
 
   // Quick chips for ready time (always forward-looking and capped at workEndHour)
   const handleQuickTime = (minutesFromNow: number) => {
@@ -283,15 +293,26 @@ export default function OrderFormAndList({
       return;
     }
 
-    // Validation 1: Hours must be within working hours (e.g. 07:00 - 18:00)
+    // Validation 1: Hours must be within working hours and after opening + duration
     const [h, m] = targetHour.split(':').map(Number);
     const targetTotalMinutes = h * 60 + m;
     const workStartTotalMinutes = workStartHour * 60;
     const workEndTotalMinutes = workEndHour * 60;
+    const serviceDuration = currentCat?.defaultDurationMin || 30;
+    const earliestFeasibleFromOpeningMinutes = workStartTotalMinutes + serviceDuration;
 
-    if (targetTotalMinutes < workStartTotalMinutes || targetTotalMinutes > workEndTotalMinutes) {
+    if (targetTotalMinutes < earliestFeasibleFromOpeningMinutes) {
+      const eHour = Math.floor(earliestFeasibleFromOpeningMinutes / 60).toString().padStart(2, '0');
+      const eMin = (earliestFeasibleFromOpeningMinutes % 60).toString().padStart(2, '0');
       setFormErrorMsg(
-        `Myjnia pracuje w godzinach ${workStartHour}:00 - ${workEndHour}:00. Nie można zaplanować odbioru po godzinie ${workEndHour}:00 ani przed ${workStartHour}:00. Wybierz godzinę w ramach otwarcia myjni lub zaplanuj na jutro.`
+        `Myjnia otwiera się o ${workStartHour}:00. Wybrana usługa (${currentCat.name}) trwa ${serviceDuration} min, więc najwcześniejsza możliwa godzina gotowości to ${eHour}:${eMin}.`
+      );
+      return;
+    }
+
+    if (targetTotalMinutes > workEndTotalMinutes) {
+      setFormErrorMsg(
+        `Myjnia kończy pracę o godzinie ${workEndHour}:00. Nie można zaplanować odbioru po ${workEndHour}:00. Wybierz wcześniejszą godzinę lub zaplanuj na kolejny dzień.`
       );
       return;
     }
@@ -302,7 +323,6 @@ export default function OrderFormAndList({
 
     const currentTime = new Date();
     if (targetReadyDate === todayStr) {
-      const serviceDuration = currentCat?.defaultDurationMin || 30;
       const minRequiredDate = new Date(currentTime.getTime() + serviceDuration * 60000);
 
       if (targetDate < minRequiredDate) {
