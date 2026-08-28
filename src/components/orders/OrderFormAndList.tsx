@@ -436,36 +436,46 @@ export default function OrderFormAndList({
     return true;
   });
 
-  const getStatusBadge = (status: string) => {
-    switch (status) {
+  const getStatusBadge = (order: any) => {
+    switch (order.status) {
       case 'READY':
         return (
-          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-xs font-black pulse-ready">
-            <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-xs font-black pulse-ready">
+            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
             GOTOWE DO ODBIORU!
           </span>
         );
       case 'IN_PROGRESS':
         return (
-          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 text-xs font-black pulse-in-progress">
-            <RefreshCw className="w-3.5 h-3.5 animate-spin text-amber-400" />
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 text-xs font-black pulse-in-progress">
+            <RefreshCw className="w-3 h-3 animate-spin text-amber-400" />
             W TRAKCIE MYCIA
           </span>
         );
       case 'COMPLETED':
         return (
-          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-800 text-slate-400 text-xs font-semibold">
-            <Check className="w-3.5 h-3.5" />
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-slate-800 text-slate-400 text-xs font-semibold">
+            <Check className="w-3 h-3" />
             WYDANE / ZREALIZOWANE
           </span>
         );
-      default:
+      default: {
+        const isAssigned = Boolean(order.assignedEmployee?.name || order.assignedEmployeeId || order.scheduledStartTime);
+        if (isAssigned) {
+          return (
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-xs font-black shadow-sm">
+              <Calendar className="w-3.5 h-3.5 text-emerald-400" />
+              ZAPLANOWANE
+            </span>
+          );
+        }
         return (
-          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-sky-500/15 text-sky-300 border border-sky-500/30 text-xs font-bold">
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-sky-500/15 text-sky-300 border border-sky-500/30 text-xs font-bold">
             <Clock className="w-3.5 h-3.5 text-sky-400" />
-            W KOLEJCE (ZAPLANOWANE)
+            W KOLEJCE
           </span>
         );
+      }
     }
   };
 
@@ -518,20 +528,20 @@ export default function OrderFormAndList({
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
 
-        {/* Form Column */}
-        <div className="lg:col-span-5 bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-7 shadow-xl">
-          <h2 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
-            <Sparkles className="w-5 h-5 text-sky-400" />
+        {/* Form Column (Scaled down by 20%) */}
+        <div className="lg:col-span-5 bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-5 shadow-xl">
+          <h2 className="text-base font-bold text-white mb-3 flex items-center gap-2">
+            <Sparkles className="w-4 h-4 text-sky-400" />
             Nowe Zlecenie Mycia
           </h2>
 
           {/* Smart Recommendation Banner for high load or end of day */}
           {workloadStats.isOverloadedToday && (
-            <div className="mb-5 p-4 rounded-2xl bg-amber-950/70 border border-amber-500/50 shadow-lg text-amber-200 text-xs space-y-2">
-              <div className="flex items-start gap-2.5">
-                <Lightbulb className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" />
+            <div className="mb-3.5 p-3 rounded-xl bg-amber-950/70 border border-amber-500/50 shadow-lg text-amber-200 text-xs space-y-1.5">
+              <div className="flex items-start gap-2">
+                <Lightbulb className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
                 <div>
                   <p className="font-extrabold text-amber-300">
                     {isEndOfDay
@@ -551,20 +561,20 @@ export default function OrderFormAndList({
                     setTargetReadyDate(tomorrowStr);
                     setTargetHour('09:00');
                   }}
-                  className="w-full py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs transition-all shadow flex items-center justify-center gap-1.5"
+                  className="w-full py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs transition-all shadow flex items-center justify-center gap-1"
                 >
-                  <SunMedium className="w-4 h-4" />
+                  <SunMedium className="w-3.5 h-3.5" />
                   <span>Przełącz na jutro rano (09:00)</span>
                 </button>
               )}
             </div>
           )}
 
-          <form onSubmit={handleSubmit} className="space-y-5">
+          <form onSubmit={handleSubmit} className="space-y-3.5">
 
             {/* Department Selection (Locked if logged in as a specific department) */}
             <div>
-              <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center justify-between mb-1.5">
                 <label className="block text-xs font-bold uppercase tracking-wider text-slate-400">
                   Dział Zgłaszający
                 </label>
@@ -576,23 +586,23 @@ export default function OrderFormAndList({
               </div>
 
               {isDeptLocked ? (
-                <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-between">
-                  <div className="flex items-center gap-2.5">
+                <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
                     <div
-                      className="w-3.5 h-3.5 rounded-full"
+                      className="w-3 h-3 rounded-full"
                       style={{ backgroundColor: userDeptObj?.color || '#3b82f6' }}
                     />
                     <div>
-                      <span className="text-sm font-bold text-white">{userDeptObj?.name}</span>
-                      <span className="text-[10px] text-slate-400 block">Zalogowany jako {currentUser?.name}</span>
+                      <span className="text-xs font-bold text-white">{userDeptObj?.name}</span>
+                      <span className="text-[9px] text-slate-400 block">Zalogowany: {currentUser?.name}</span>
                     </div>
                   </div>
-                  <span className="text-xs font-mono font-bold px-2.5 py-1 rounded bg-slate-800 border border-slate-700 text-slate-300">
+                  <span className="text-xs font-mono font-bold px-2 py-0.5 rounded bg-slate-800 border border-slate-700 text-slate-300">
                     {userDeptObj?.code}
                   </span>
                 </div>
               ) : (
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-2 gap-1.5">
                   {departments.map((d) => {
                     const isSelected = selectedDeptId === d.id;
                     return (
@@ -612,13 +622,13 @@ export default function OrderFormAndList({
                               : (categories[0]?.id || '');
                           setSelectedCatId(nextCat);
                         }}
-                        className={`p-3 rounded-xl text-left border transition-all flex items-center gap-2 ${isSelected
+                        className={`p-2.5 rounded-xl text-left border transition-all flex items-center gap-2 ${isSelected
                           ? 'bg-slate-800 border-sky-500 ring-2 ring-sky-500/20 text-white font-bold'
                           : 'bg-slate-950/60 border-slate-800 text-slate-400 hover:border-slate-700'
                           }`}
                       >
                         <div
-                          className="w-3 h-3 rounded-full flex-shrink-0"
+                          className="w-2.5 h-2.5 rounded-full flex-shrink-0"
                           style={{ backgroundColor: d.color }}
                         />
                         <span className="text-xs truncate">{d.name}</span>
@@ -630,10 +640,10 @@ export default function OrderFormAndList({
             </div>
 
             {/* License Plate & Car Model */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
               <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">
-                  Nr Rejestracyjny lub VIN/KOMIS *
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">
+                  Nr Rejestracyjny / VIN *
                 </label>
                 <input
                   type="text"
@@ -644,12 +654,12 @@ export default function OrderFormAndList({
                     setLicensePlate(e.target.value.toUpperCase());
                     if (dmsSelected) setDmsSelected(null);
                   }}
-                  className="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-800 text-white font-mono text-base font-bold tracking-wider placeholder:text-slate-600 focus:outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-500/20 uppercase"
+                  className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white font-mono text-sm font-bold tracking-wider placeholder:text-slate-600 focus:outline-none focus:border-sky-500 uppercase"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">
                   Model / Kolor
                 </label>
                 <input
@@ -657,23 +667,23 @@ export default function OrderFormAndList({
                   placeholder="np. Omoda 5 / Czarny"
                   value={carModel}
                   onChange={(e) => setCarModel(e.target.value)}
-                  className="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-800 text-white text-sm font-medium placeholder:text-slate-600 focus:outline-none focus:border-sky-500"
+                  className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs font-medium placeholder:text-slate-600 focus:outline-none focus:border-sky-500"
                 />
               </div>
             </div>
 
             {/* DMS Vehicle Picker */}
             {dmsEnabled && (
-              <div className="rounded-2xl border border-violet-500/30 bg-slate-950/60 p-4 space-y-3">
+              <div className="rounded-xl border border-violet-500/30 bg-slate-950/60 p-3 space-y-2">
                 <div className="flex items-center justify-between gap-2">
-                  <label className="block text-xs font-bold uppercase tracking-wider text-violet-300 flex items-center gap-1.5">
-                    <Database className="w-3.5 h-3.5" />
-                    Wybierz pojazd z DMS ({dmsServiceCode})
+                  <label className="block text-[11px] font-bold uppercase tracking-wider text-violet-300 flex items-center gap-1.5">
+                    <Database className="w-3 h-3" />
+                    Wybierz z DMS ({dmsServiceCode})
                   </label>
                   <div className="flex items-center gap-2">
                     {dmsStatus && dmsStatus.fileUpdatedAt && (
-                      <span className={`text-[10px] font-semibold ${dmsStatus.stale ? 'text-amber-400' : 'text-slate-400'}`}>
-                        {dmsStatus.stale ? '⚠ nieświeże' : '✓ dane z'}{' '}
+                      <span className={`text-[9px] font-semibold ${dmsStatus.stale ? 'text-amber-400' : 'text-slate-400'}`}>
+                        {dmsStatus.stale ? '⚠ nieświeże' : '✓'}{' '}
                         {new Date(dmsStatus.fileUpdatedAt).toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' })}
                       </span>
                     )}
@@ -681,9 +691,9 @@ export default function OrderFormAndList({
                       type="button"
                       onClick={handleDmsRefresh}
                       disabled={dmsSearching}
-                      className="text-[10px] px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-violet-300 font-bold flex items-center gap-1 disabled:opacity-50"
+                      className="text-[9px] px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-violet-300 font-bold flex items-center gap-1 disabled:opacity-50"
                     >
-                      <RefreshCw className={`w-3 h-3 ${dmsSearching ? 'animate-spin' : ''}`} />
+                      <RefreshCw className={`w-2.5 h-2.5 ${dmsSearching ? 'animate-spin' : ''}`} />
                       Odśwież
                     </button>
                   </div>
@@ -700,65 +710,56 @@ export default function OrderFormAndList({
                     onFocus={() => {
                       if (dmsResults.length > 0) setDmsShowDropdown(true);
                     }}
-                    placeholder="Wpisz ≥3 znaki rejestracji, nr zlecenia lub VIN…"
-                    className="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-800 text-white text-sm font-mono placeholder:text-slate-600 focus:outline-none focus:border-violet-500"
+                    placeholder="Wpisz ≥3 znaki rej., zlecenia lub VIN…"
+                    className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs font-mono placeholder:text-slate-600 focus:outline-none focus:border-violet-500"
                   />
 
                   {dmsShowDropdown && dmsResults.length > 0 && (
-                    <div className="absolute z-20 left-0 right-0 mt-1 max-h-72 overflow-y-auto rounded-xl border border-slate-700 bg-slate-900 shadow-2xl">
+                    <div className="absolute z-20 left-0 right-0 mt-1 max-h-60 overflow-y-auto rounded-xl border border-slate-700 bg-slate-900 shadow-2xl">
                       {dmsResults.map((r) => (
                         <button
                           key={r.dmsOrderId}
                           type="button"
                           onClick={() => pickDms(r)}
-                          className="w-full text-left px-3.5 py-2.5 border-b border-slate-800/70 hover:bg-slate-800/60 transition-colors"
+                          className="w-full text-left px-3 py-2 border-b border-slate-800/70 hover:bg-slate-800/60 transition-colors"
                         >
                           <div className="flex items-center justify-between gap-2">
-                            <span className="font-mono font-black text-sm text-white">
+                            <span className="font-mono font-black text-xs text-white">
                               {r.licensePlate || <span className="text-slate-500">— brak rej. —</span>}
                               {!r.hasPlate && (
-                                <span className="ml-1.5 text-[9px] font-bold text-violet-300 bg-violet-500/15 px-1 py-0.5 rounded uppercase">
+                                <span className="ml-1.5 text-[8px] font-bold text-violet-300 bg-violet-500/15 px-1 py-0.2 rounded uppercase">
                                   VIN
                                 </span>
                               )}
                             </span>
-                            <span className="text-[10px] font-mono text-slate-400">{r.orderNumber}</span>
+                            <span className="text-[9px] font-mono text-slate-400">{r.orderNumber}</span>
                           </div>
-                          <p className="text-xs text-slate-300 truncate">{r.brand} {r.model}</p>
-                          <p className="text-[10px] text-slate-500 truncate flex items-center gap-1 font-mono">
-                            {r.vin && <span>VIN: {r.vin}</span>}
-                            {r.vin && r.openDate && <span>•</span>}
-                            {r.openDate && <span>{r.openDate}</span>}
-                            {r.alreadyReported && (
-                              <span className="ml-1.5 text-emerald-400 font-bold font-sans">✓ już zgłoszone</span>
-                            )}
-                          </p>
+                          <p className="text-[11px] text-slate-300 truncate">{r.brand} {r.model}</p>
                         </button>
                       ))}
                     </div>
                   )}
 
                   {dmsShowDropdown && dmsResults.length === 0 && dmsQuery.trim().length >= 3 && !dmsSearching && (
-                    <div className="absolute z-20 left-0 right-0 mt-1 rounded-xl border border-slate-700 bg-slate-900 px-3.5 py-2.5 text-xs text-slate-400">
+                    <div className="absolute z-20 left-0 right-0 mt-1 rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-xs text-slate-400">
                       Brak wyników dla: {dmsQuery.trim()}
                     </div>
                   )}
                 </div>
 
                 {dmsSelected && (
-                  <div className="flex items-center justify-between gap-2 bg-violet-500/10 border border-violet-500/40 rounded-xl px-3 py-2">
-                    <div className="text-[11px] text-violet-200">
-                      <span className="font-bold">Wybrano z DMS:</span>{' '}
-                      {dmsSelected.dmsOrderNumber || '—'}
+                  <div className="flex items-center justify-between gap-2 bg-violet-500/10 border border-violet-500/40 rounded-lg px-2.5 py-1.5">
+                    <div className="text-[10px] text-violet-200">
+                      <span className="font-bold">DMS:</span> {dmsSelected.dmsOrderNumber || '—'}
                       {dmsSelected.dmsVin ? ` • VIN ${dmsSelected.dmsVin.slice(0, 8)}…` : ''}
                     </div>
                     <button
                       type="button"
                       onClick={() => setDmsSelected(null)}
-                      className="text-violet-300 hover:text-white p-1"
+                      className="text-violet-300 hover:text-white p-0.5"
                       title="Wyczyść referencję DMS"
                     >
-                      <X className="w-4 h-4" />
+                      <X className="w-3.5 h-3.5" />
                     </button>
                   </div>
                 )}
@@ -767,44 +768,44 @@ export default function OrderFormAndList({
 
             {/* Vehicle Type (Passenger / Delivery) */}
             <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">
+              <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">
                 Gabaryt Pojazdu
               </label>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-2 gap-2">
                 <button
                   type="button"
                   onClick={() => setCarType('PASSENGER')}
-                  className={`p-3.5 rounded-xl border flex items-center justify-center gap-2.5 transition-all ${carType === 'PASSENGER'
+                  className={`p-2.5 rounded-xl border flex items-center justify-center gap-2 transition-all ${carType === 'PASSENGER'
                     ? 'bg-sky-500/15 border-sky-500 text-sky-300 font-bold'
                     : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
                     }`}
                 >
-                  <Car className="w-5 h-5" />
-                  <span className="text-xs">Osobowy / SUV (1 stan.)</span>
+                  <Car className="w-4 h-4" />
+                  <span className="text-xs">Osobowy / SUV</span>
                 </button>
 
                 <button
                   type="button"
                   onClick={() => setCarType('DELIVERY')}
-                  className={`p-3.5 rounded-xl border flex items-center justify-center gap-2.5 transition-all ${carType === 'DELIVERY'
+                  className={`p-2.5 rounded-xl border flex items-center justify-center gap-2 transition-all ${carType === 'DELIVERY'
                     ? 'bg-amber-500/15 border-amber-500 text-amber-300 font-bold'
                     : 'bg-slate-950 border-slate-800 text-slate-400 hover:border-slate-700'
                     }`}
                 >
-                  <Truck className="w-5 h-5" />
-                  <span className="text-xs">Dostawczy / Bus (1.5 stan.)</span>
+                  <Truck className="w-4 h-4" />
+                  <span className="text-xs">Dostawczy / Bus</span>
                 </button>
               </div>
             </div>
 
             {/* Wash Category Selector (Lista rozwijalna / Dropdown) */}
             <div>
-              <div className="flex items-center justify-between mb-1.5">
+              <div className="flex items-center justify-between mb-1">
                 <label className="block text-xs font-bold uppercase tracking-wider text-slate-400">
                   Rodzaj / Zakres Mycia *
                 </label>
                 {currentCat && (
-                  <span className="text-xs font-mono font-bold text-sky-400 bg-sky-500/10 px-2 py-0.5 rounded-lg border border-sky-500/20">
+                  <span className="text-[11px] font-mono font-bold text-sky-400 bg-sky-500/10 px-1.5 py-0.2 rounded border border-sky-500/20">
                     ⏱ {currentCat.defaultDurationMin >= 60 ? `${(currentCat.defaultDurationMin / 60).toFixed(1)}h` : `${currentCat.defaultDurationMin} min`}
                   </span>
                 )}
@@ -814,52 +815,44 @@ export default function OrderFormAndList({
                 <select
                   value={selectedCatId}
                   onChange={(e) => setSelectedCatId(e.target.value)}
-                  className="w-full px-4 py-3.5 rounded-xl bg-slate-950 border border-slate-800 text-white font-bold text-sm focus:outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-500/20 cursor-pointer appearance-none"
+                  className="w-full px-3 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white font-bold text-xs focus:outline-none focus:border-sky-500 cursor-pointer appearance-none"
                 >
                   {categories.map((c) => (
-                    <option key={c.id} value={c.id} className="bg-slate-900 text-white py-2">
+                    <option key={c.id} value={c.id} className="bg-slate-900 text-white py-1">
                       {c.name} — {c.defaultDurationMin >= 60 ? `${(c.defaultDurationMin / 60).toFixed(1)}h` : `${c.defaultDurationMin} min`}
                     </option>
                   ))}
                 </select>
-                <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400 text-xs">
+                <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400 text-xs">
                   ▼
                 </div>
               </div>
-
-              {currentCat?.description && (
-                <p className="text-xs text-slate-400 mt-2 px-1">
-                  ℹ️ {currentCat.description}
-                </p>
-              )}
             </div>
 
-            {/* Target Ready Date & Time (Date Picker + Quick Chips: Dziś, Jutro, Pojutrze + Time validation) */}
-            <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-3">
+            {/* Target Ready Date & Time */}
+            <div className="bg-slate-950 p-3 rounded-xl border border-slate-800 space-y-2.5">
               <label className="block text-xs font-bold uppercase tracking-wider text-slate-300">
                 Termin i Godzina Gotowości
               </label>
 
               {/* Date selection shortcuts */}
               <div>
-                <span className="text-[10px] text-slate-400 uppercase font-bold block mb-1.5">
-                  1. Wybierz Dzień Gotowości:
+                <span className="text-[10px] text-slate-400 uppercase font-bold block mb-1">
+                  1. Dzień Gotowości:
                 </span>
-                <div className="flex flex-wrap items-center gap-2 mb-2">
+                <div className="flex flex-wrap items-center gap-1.5 mb-1.5">
                   <button
                     type="button"
                     onClick={() => {
                       setTargetReadyDate(todayStr);
-                      if (targetHour < earliestFeasibleHourToday) {
-                        setTargetHour(earliestFeasibleHourToday);
-                      }
+                      setTargetHour('14:00');
                     }}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${targetReadyDate === todayStr
-                      ? 'bg-sky-500 text-white shadow'
-                      : 'bg-slate-800 text-slate-400 hover:text-white'
+                    className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${targetReadyDate === todayStr
+                      ? 'bg-sky-500 text-slate-950 shadow-sm'
+                      : 'bg-slate-900 text-slate-300 hover:bg-slate-800 border border-slate-800'
                       }`}
                   >
-                    Dziś
+                    Dziś ({format(new Date(todayStr), 'd MMM', { locale: pl })})
                   </button>
 
                   <button
@@ -868,12 +861,12 @@ export default function OrderFormAndList({
                       setTargetReadyDate(tomorrowStr);
                       setTargetHour('09:00');
                     }}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${targetReadyDate === tomorrowStr
-                      ? 'bg-sky-500 text-white shadow'
-                      : 'bg-slate-800 text-slate-400 hover:text-white'
+                    className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${targetReadyDate === tomorrowStr
+                      ? 'bg-sky-500 text-slate-950 shadow-sm'
+                      : 'bg-slate-900 text-slate-300 hover:bg-slate-800 border border-slate-800'
                       }`}
                   >
-                    Jutro
+                    Jutro ({format(new Date(tomorrowStr), 'd MMM', { locale: pl })})
                   </button>
 
                   <button
@@ -882,78 +875,88 @@ export default function OrderFormAndList({
                       setTargetReadyDate(dayAfterTomorrowStr);
                       setTargetHour('09:00');
                     }}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${targetReadyDate === dayAfterTomorrowStr
-                      ? 'bg-sky-500 text-white shadow'
-                      : 'bg-slate-800 text-slate-400 hover:text-white'
+                    className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${targetReadyDate === dayAfterTomorrowStr
+                      ? 'bg-sky-500 text-slate-950 shadow-sm'
+                      : 'bg-slate-900 text-slate-300 hover:bg-slate-800 border border-slate-800'
                       }`}
                   >
-                    Pojutrze
+                    Pojutrze ({format(new Date(dayAfterTomorrowStr), 'd MMM', { locale: pl })})
                   </button>
+                </div>
 
+                <div className="flex items-center gap-2">
                   <input
                     type="date"
                     required
-                    min={todayStr}
                     value={targetReadyDate}
-                    onChange={(e) => setTargetReadyDate(e.target.value)}
-                    className="px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-700 text-white text-xs font-bold focus:border-sky-500"
+                    min={todayStr}
+                    onChange={(e) => {
+                      setTargetReadyDate(e.target.value);
+                      if (e.target.value !== todayStr && targetHour < '08:00') {
+                        setTargetHour('09:00');
+                      }
+                    }}
+                    className="px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-white font-mono text-xs focus:outline-none focus:border-sky-500"
                   />
+                  <span className="text-[10px] text-slate-400">
+                    {format(new Date(targetReadyDate), 'EEEE, d MMMM', { locale: pl })}
+                  </span>
                 </div>
               </div>
 
-              {/* Hour selection & forward-looking quick chips */}
-              <div>
+              {/* Time selection */}
+              <div className="pt-2 border-t border-slate-800/80">
                 <div className="flex items-center justify-between mb-1.5">
                   <span className="text-[10px] text-slate-400 uppercase font-bold">
-                    2. Godzina Gotowości:
+                    2. Godzina Gotowości ({format(new Date(targetReadyDate), 'd MMM', { locale: pl })}):
                   </span>
                   {targetReadyDate === todayStr && (
-                    <span className="text-[10px] text-sky-400 font-semibold">
-                      Min. czas na dziś: {earliestFeasibleHourToday}
+                    <span className="text-[9px] text-sky-400 font-semibold">
+                      Min. dziś: {earliestFeasibleHourToday}
                     </span>
                   )}
                 </div>
 
-                <div className="flex items-center gap-3 mb-2">
+                <div className="flex items-center gap-2.5 mb-2">
                   <input
                     type="time"
                     required
                     value={targetHour}
                     onChange={(e) => setTargetHour(e.target.value)}
-                    className="px-4 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-white font-mono text-base font-bold focus:outline-none focus:border-sky-500"
+                    className="px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-white font-mono text-sm font-bold focus:outline-none focus:border-sky-500"
                   />
-                  <span className="text-xs text-amber-300 font-semibold">
-                    Auto ma być gotowe na {targetHour} ({format(new Date(targetReadyDate), 'd MMMM', { locale: pl })})
+                  <span className="text-[11px] text-amber-300 font-semibold truncate">
+                    Gotowe na: <strong>{targetHour}</strong> ({format(new Date(targetReadyDate), 'd MMM', { locale: pl })})
                   </span>
                 </div>
 
                 {/* Overbooked / Full Capacity Warning Banner */}
                 {selectedSlotStatus?.isOverbooked && !isPriority && (
-                  <div className="mb-3 p-3.5 rounded-2xl bg-gradient-to-r from-rose-950/90 via-amber-950/70 to-slate-900 border-2 border-rose-500/80 text-rose-200 text-xs space-y-2 shadow-xl shadow-rose-950/30 animate-fadeIn">
-                    <div className="flex items-start gap-2.5">
-                      <AlertTriangle className="w-5 h-5 text-rose-400 flex-shrink-0 mt-0.5 animate-pulse" />
+                  <div className="mb-2.5 p-2.5 rounded-xl bg-gradient-to-r from-rose-950/90 via-amber-950/70 to-slate-900 border border-rose-500/80 text-rose-200 text-xs space-y-1.5 shadow-md animate-fadeIn">
+                    <div className="flex items-start gap-2">
+                      <AlertTriangle className="w-4 h-4 text-rose-400 flex-shrink-0 mt-0.5 animate-pulse" />
                       <div>
-                        <div className="text-xs sm:text-sm font-black text-rose-300 flex items-center gap-1.5 flex-wrap">
-                          <span>Uwaga: Godzina {targetHour} jest już w 100% zapełniona</span>
-                          <span className="px-1.5 py-0.2 rounded bg-rose-500/30 text-rose-300 border border-rose-500/40 font-mono text-[10px]">
+                        <div className="text-xs font-black text-rose-300 flex items-center gap-1.5 flex-wrap">
+                          <span>Godzina {targetHour} jest już w 100% zapełniona</span>
+                          <span className="px-1.5 py-0.2 rounded bg-rose-500/30 text-rose-300 border border-rose-500/40 font-mono text-[9px]">
                             {selectedSlotStatus.usedCapacity}/{selectedSlotStatus.totalCapacity} aut
                           </span>
                         </div>
-                        <p className="text-[11px] text-rose-200/90 font-normal mt-1 leading-relaxed">
-                          Przepustowość myjni dla tego okna gotowości została wyczerpana. Zlecenie zostanie zarejestrowane, ale trafi do kolejki jako oczekujące i myjnia może zrealizować je z opóźnieniem lub przesunąć termin.
+                        <p className="text-[10px] text-rose-200/90 font-normal mt-0.5 leading-tight">
+                          Zlecenie trafi do kolejki jako oczekujące i może być zrealizowane z opóźnieniem.
                         </p>
                       </div>
                     </div>
                     {selectedSlotStatus.suggestedAlternativeHour && (
-                      <div className="flex items-center justify-between pt-2 border-t border-rose-500/30 text-[11px] flex-wrap gap-2">
+                      <div className="flex items-center justify-between pt-1.5 border-t border-rose-500/30 text-[10px] flex-wrap gap-1">
                         <span className="text-amber-300 font-semibold flex items-center gap-1">
-                          <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-                          Sugerowany wolny termin: <strong className="text-white font-mono">{selectedSlotStatus.suggestedAlternativeHour}</strong>
+                          <Sparkles className="w-3 h-3 text-amber-400" />
+                          Wolny termin: <strong className="text-white font-mono">{selectedSlotStatus.suggestedAlternativeHour}</strong>
                         </span>
                         <button
                           type="button"
                           onClick={() => setTargetHour(selectedSlotStatus.suggestedAlternativeHour!)}
-                          className="px-2.5 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-[10px] flex items-center gap-1 shadow transition-colors"
+                          className="px-2 py-0.5 rounded bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-[9px] flex items-center gap-1 transition-colors"
                         >
                           Zmień na {selectedSlotStatus.suggestedAlternativeHour}
                         </button>
@@ -963,45 +966,44 @@ export default function OrderFormAndList({
                 )}
 
                 {/* Forward looking quick chips */}
-                <div className="flex flex-wrap gap-1.5 mb-3">
+                <div className="flex flex-wrap gap-1 mb-2.5">
                   <button
                     type="button"
                     onClick={() => handleQuickTime(45)}
-                    className="text-xs px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold"
+                    className="text-[10px] px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold"
                   >
-                    +45 min
+                    +45m
                   </button>
                   <button
                     type="button"
                     onClick={() => handleQuickTime(90)}
-                    className="text-xs px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold"
+                    className="text-[10px] px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold"
                   >
                     +1.5h
                   </button>
                   <button
                     type="button"
                     onClick={() => handleQuickTime(150)}
-                    className="text-xs px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold"
+                    className="text-[10px] px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold"
                   >
                     +2.5h
                   </button>
                   <button
                     type="button"
                     onClick={() => handleSetExactHour('14:00')}
-                    className="text-xs px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold"
+                    className="text-[10px] px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold"
                   >
                     Na 14:00
                   </button>
                   <button
                     type="button"
                     onClick={() => handleSetExactHour('16:00')}
-                    className="text-xs px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold"
+                    className="text-[10px] px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold"
                   >
                     Na 16:00
                   </button>
                 </div>
 
-                {/* Mini-Plan Dostępności Slotów */}
                 <TimeSlotAvailabilityGrid
                   orders={targetDateOrders}
                   targetReadyDate={targetReadyDate}
@@ -1023,30 +1025,30 @@ export default function OrderFormAndList({
 
             {/* Express / Urgent Priority Mode ("Na już" / Wrzutka poza kolejką) - Only for ADMIN / WASHER */}
             {currentUser && (currentUser.role === 'ADMIN' || currentUser.role === 'WASHER') ? (
-              <div className={`p-4 rounded-2xl border transition-all ${isPriority
-                ? 'bg-gradient-to-br from-amber-950/40 via-red-950/20 to-slate-950 border-amber-500/80 shadow-lg shadow-amber-500/10'
+              <div className={`p-3 rounded-xl border transition-all ${isPriority
+                ? 'bg-gradient-to-br from-amber-950/40 via-red-950/20 to-slate-950 border-amber-500/80 shadow-md shadow-amber-500/10'
                 : 'bg-slate-950 border-slate-800/80 hover:border-slate-700'
                 }`}>
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2.5">
-                    <div className={`p-2 rounded-xl flex items-center justify-center transition-colors ${isPriority ? 'bg-amber-500 text-slate-950 shadow-md shadow-amber-500/30' : 'bg-slate-800 text-slate-400'
+                  <div className="flex items-center gap-2">
+                    <div className={`p-1.5 rounded-lg flex items-center justify-center transition-colors ${isPriority ? 'bg-amber-500 text-slate-950 shadow-sm' : 'bg-slate-800 text-slate-400'
                       }`}>
-                      <Zap className="w-5 h-5" />
+                      <Zap className="w-4 h-4" />
                     </div>
                     <div>
                       <label
                         htmlFor="priorityToggle"
-                        className="text-xs font-black uppercase tracking-wider text-white flex items-center gap-1.5 cursor-pointer"
+                        className="text-xs font-black uppercase tracking-wider text-white flex items-center gap-1 cursor-pointer"
                       >
-                        <span>Priorytet Ekspres / Wydanie natychmiastowe</span>
+                        <span>Ekspres / Poza kolejką</span>
                         {isPriority && (
-                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 font-mono font-bold animate-pulse">
-                            WYMAGA AUDYTU
+                          <span className="text-[9px] px-1.5 py-0.2 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 font-mono font-bold animate-pulse">
+                            AUDYT
                           </span>
                         )}
                       </label>
-                      <p className="text-[11px] text-slate-400 mt-0.5">
-                        Wrzutka poza standardową kolejką na polecenie Dyrekcji / Kierownika
+                      <p className="text-[10px] text-slate-400">
+                        Wrzutka na polecenie Dyrekcji / Kierownika
                       </p>
                     </div>
                   </div>
@@ -1059,90 +1061,80 @@ export default function OrderFormAndList({
                       onChange={(e) => setIsPriority(e.target.checked)}
                       className="sr-only peer"
                     />
-                    <div className="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-500"></div>
+                    <div className="w-9 h-5 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-amber-500"></div>
                   </label>
                 </div>
 
                 {isPriority && (
-                  <div className="mt-4 pt-4 border-t border-amber-500/30 space-y-3.5 animate-fadeIn">
-                    <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-start gap-2.5 text-xs text-amber-200">
-                      <ShieldAlert className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
-                      <div>
-                        <strong className="text-amber-300">Transparentność kolejki (Audit Log):</strong> Każda wrzutka ekspresowa jest rejestrowana w raporcie dla Dyrekcji i publicznie widoczna dla wszystkich działów salonu.
-                      </div>
-                    </div>
-
+                  <div className="mt-3 pt-3 border-t border-amber-500/30 space-y-2.5 animate-fadeIn">
                     <div>
-                      <label className="block text-xs font-bold uppercase tracking-wider text-amber-300 mb-1.5 flex items-center justify-between">
-                        <span>Osoba Decyzyjna (Zatwierdzający) *</span>
-                        <span className="text-[10px] text-amber-400/80 font-normal">Kierownik / Dyrektor</span>
+                      <label className="block text-[11px] font-bold uppercase tracking-wider text-amber-300 mb-1 flex items-center justify-between">
+                        <span>Osoba Decyzyjna *</span>
+                        <span className="text-[9px] text-amber-400/80 font-normal">Kierownik / Dyrektor</span>
                       </label>
                       <input
                         type="text"
                         required={isPriority}
-                        placeholder="np. Kierownik Serwisu Jan Kowalski / Dyrektor Salonu"
+                        placeholder="np. Kierownik Serwisu Jan Kowalski"
                         value={priorityAuthorizer}
                         onChange={(e) => setPriorityAuthorizer(e.target.value)}
-                        className="w-full px-4 py-2.5 rounded-xl bg-slate-900 border border-amber-500/50 text-white text-sm font-semibold placeholder:text-slate-600 focus:outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-500/20"
+                        className="w-full px-3 py-1.5 rounded-lg bg-slate-900 border border-amber-500/50 text-white text-xs font-semibold placeholder:text-slate-600 focus:outline-none focus:border-amber-400"
                       />
                     </div>
 
                     <div>
-                      <label className="block text-xs font-bold uppercase tracking-wider text-amber-300 mb-1.5 flex items-center justify-between">
-                        <span>Uzasadnienie Pierwszeństwa / Wrzutki *</span>
-                        <span className="text-[10px] text-amber-400/80 font-normal">Dlaczego zepchnięto inne auta</span>
+                      <label className="block text-[11px] font-bold uppercase tracking-wider text-amber-300 mb-1 flex items-center justify-between">
+                        <span>Powód Wrzutki *</span>
+                        <span className="text-[9px] text-amber-400/80 font-normal">Uzasadnienie</span>
                       </label>
                       <input
                         type="text"
                         required={isPriority}
-                        placeholder="np. Klient czeka w salonie na odbiór / pilny wyjazd klienta pociągiem"
+                        placeholder="np. Klient czeka w salonie na odbiór"
                         value={priorityReason}
                         onChange={(e) => setPriorityReason(e.target.value)}
-                        className="w-full px-4 py-2.5 rounded-xl bg-slate-900 border border-amber-500/50 text-white text-sm placeholder:text-slate-600 focus:outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-500/20"
+                        className="w-full px-3 py-1.5 rounded-lg bg-slate-900 border border-amber-500/50 text-white text-xs placeholder:text-slate-600 focus:outline-none focus:border-amber-400"
                       />
                     </div>
                   </div>
                 )}
               </div>
             ) : (
-              <div className="p-3.5 rounded-2xl bg-slate-950/60 border border-slate-800/80 flex items-start gap-3 opacity-75">
-                <div className="p-2 rounded-xl bg-slate-900 text-slate-500 flex items-center justify-center flex-shrink-0">
-                  <Lock className="w-4 h-4" />
+              <div className="p-2.5 rounded-xl bg-slate-950/60 border border-slate-800/80 flex items-center gap-2.5 opacity-75">
+                <div className="p-1.5 rounded-lg bg-slate-900 text-slate-500 flex items-center justify-center flex-shrink-0">
+                  <Lock className="w-3.5 h-3.5" />
                 </div>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-bold text-slate-300">Priorytet Ekspres / Wrzutka poza kolejką</span>
-                    <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-slate-800 text-slate-400 border border-slate-700">
-                      Tylko Kierownik / Myjnia
-                    </span>
-                  </div>
-
+                <div className="min-w-0 flex-1 flex items-center justify-between gap-2">
+                  <span className="text-xs font-bold text-slate-300">Ekspres poza kolejką</span>
+                  <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-slate-800 text-slate-400 border border-slate-700">
+                    Tylko Kierownik / Myjnia
+                  </span>
                 </div>
               </div>
             )}
 
             {/* Notes & Suggestions */}
             <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">
+              <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">
                 Uwagi / Komentarze / Osoba Kontaktowa
               </label>
               <input
                 type="text"
-                placeholder="np. Wydanie z klientem o 15:30, zadzwonić do: Tomasz"
+                placeholder="np. Wydanie z klientem o 15:30, tel: Tomasz"
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
-                className="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-800 text-white text-sm placeholder:text-slate-600 focus:outline-none focus:border-sky-500 mb-2"
+                className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs placeholder:text-slate-600 focus:outline-none focus:border-sky-500 mb-1.5"
               />
 
               {/* Category suggested note tags */}
               {currentCat?.suggestedNotes && (
-                <div className="flex flex-wrap gap-1.5">
+                <div className="flex flex-wrap gap-1">
                   {currentCat.suggestedNotes.split(',').map((tag: string, idx: number) => (
                     <button
                       type="button"
                       key={idx}
                       onClick={() => handleAddTag(tag.trim())}
-                      className="text-[11px] px-2 py-0.5 rounded-md bg-slate-800/80 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-colors"
+                      className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800/80 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-colors"
                     >
                       + {tag.trim()}
                     </button>
@@ -1153,7 +1145,7 @@ export default function OrderFormAndList({
 
             {/* Contact Person */}
             <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">
+              <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">
                 Osoba Zgłaszająca
               </label>
               <input
@@ -1161,20 +1153,20 @@ export default function OrderFormAndList({
                 placeholder="Imię / Dział"
                 value={contactPerson}
                 onChange={(e) => setContactPerson(e.target.value)}
-                className="w-full px-4 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-white text-sm placeholder:text-slate-600 focus:outline-none focus:border-sky-500"
+                className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-800 text-white text-xs placeholder:text-slate-600 focus:outline-none focus:border-sky-500"
               />
             </div>
 
             {/* Messages */}
             {formErrorMsg && (
-              <div className="p-3.5 rounded-xl bg-rose-500/15 border border-rose-500/40 text-rose-300 text-xs font-bold flex items-start gap-2">
+              <div className="p-2.5 rounded-xl bg-rose-500/15 border border-rose-500/40 text-rose-300 text-xs font-bold flex items-start gap-2">
                 <AlertTriangle className="w-4 h-4 text-rose-400 flex-shrink-0 mt-0.5" />
                 <span>{formErrorMsg}</span>
               </div>
             )}
 
             {formSuccessMsg && (
-              <div className="p-3.5 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 text-xs font-medium">
+              <div className="p-2.5 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 text-xs font-medium">
                 {formSuccessMsg}
               </div>
             )}
@@ -1183,13 +1175,13 @@ export default function OrderFormAndList({
             <button
               type="submit"
               disabled={isSubmitting}
-              className="w-full py-4 rounded-2xl bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-400 hover:to-blue-500 text-white font-extrabold text-base shadow-xl shadow-sky-500/25 transition-all flex items-center justify-center gap-2"
+              className="w-full py-3 rounded-xl bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-400 hover:to-blue-500 text-white font-extrabold text-xs sm:text-sm shadow-lg shadow-sky-500/20 transition-all flex items-center justify-center gap-1.5"
             >
               {isSubmitting ? (
-                <RefreshCw className="w-5 h-5 animate-spin" />
+                <RefreshCw className="w-4 h-4 animate-spin" />
               ) : (
                 <>
-                  <Plus className="w-5 h-5" />
+                  <Plus className="w-4 h-4" />
                   <span>DODAJ SAMOCHÓD DO KOLEJKI</span>
                 </>
               )}
@@ -1197,19 +1189,19 @@ export default function OrderFormAndList({
           </form>
         </div>
 
-        {/* Live Orders Column */}
-        <div className="lg:col-span-7 space-y-4">
+        {/* Live Orders Column (Streamlined compact cards) */}
+        <div className="lg:col-span-7 space-y-3">
 
           {/* Filter Bar */}
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex flex-col sm:flex-row items-center justify-between gap-3 shadow">
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 flex flex-col sm:flex-row items-center justify-between gap-2.5 shadow">
             <div className="flex items-center gap-2 w-full sm:w-auto">
-              <Filter className="w-4 h-4 text-slate-400" />
+              <Filter className="w-3.5 h-3.5 text-slate-400" />
 
               {!isDeptLocked ? (
                 <select
                   value={filterDept}
                   onChange={(e) => setFilterDept(e.target.value)}
-                  className="bg-slate-800 border border-slate-700 text-white text-xs font-bold rounded-lg px-3 py-2 focus:outline-none focus:border-sky-500"
+                  className="bg-slate-800 border border-slate-700 text-white text-xs font-bold rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-sky-500"
                 >
                   <option value="ALL">Wszystkie działy</option>
                   {departments.map((d) => (
@@ -1217,7 +1209,7 @@ export default function OrderFormAndList({
                   ))}
                 </select>
               ) : (
-                <span className="text-xs font-bold text-sky-400 bg-slate-800 px-3 py-1.5 rounded-lg border border-slate-700">
+                <span className="text-xs font-bold text-sky-400 bg-slate-800 px-2.5 py-1 rounded-lg border border-slate-700">
                   {userDeptObj?.name}
                 </span>
               )}
@@ -1226,40 +1218,40 @@ export default function OrderFormAndList({
               {completedCount > 0 && (
                 <button
                   onClick={() => setShowCompleted(!showCompleted)}
-                  className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors ${showCompleted
+                  className={`px-2 py-1 rounded-lg text-xs font-semibold flex items-center gap-1 transition-colors ${showCompleted
                     ? 'bg-slate-700 text-white'
                     : 'bg-slate-800/80 text-slate-400 hover:text-slate-200'
                     }`}
                   title="Wydane auta są domyślnie ukryte"
                 >
-                  {showCompleted ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                  {showCompleted ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
                   <span>{showCompleted ? 'Ukryj wydane' : `Wydane (${completedCount})`}</span>
                 </button>
               )}
             </div>
 
-            <div className="relative w-full sm:w-60">
-              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+            <div className="relative w-full sm:w-52">
+              <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500" />
               <input
                 type="text"
                 placeholder="Szukaj rejestracji..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-9 pr-3 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-xs placeholder:text-slate-500 focus:outline-none focus:border-sky-500"
+                className="w-full pl-8 pr-2.5 py-1.5 rounded-lg bg-slate-800 border border-slate-700 text-white text-xs placeholder:text-slate-500 focus:outline-none focus:border-sky-500"
               />
             </div>
           </div>
 
-          {/* Orders Cards List */}
+          {/* Orders Cards List (3x more compact rows) */}
           {isLoadingList ? (
-            <div className="p-12 text-center text-slate-500">
-              <RefreshCw className="w-8 h-8 animate-spin mx-auto mb-2 text-sky-400" />
-              <p>Ładowanie kolejki myjni...</p>
+            <div className="p-8 text-center text-slate-500">
+              <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-sky-400" />
+              <p className="text-xs">Ładowanie kolejki myjni...</p>
             </div>
           ) : filteredOrders.length === 0 ? (
-            <div className="bg-slate-900/60 border border-slate-800/80 rounded-3xl p-12 text-center">
-              <Car className="w-12 h-12 text-slate-600 mx-auto mb-3" />
-              <h3 className="text-lg font-bold text-white">Brak aktywnych zleceń na dzień {format(new Date(selectedDate), 'd MMMM', { locale: pl })}</h3>
+            <div className="bg-slate-900/60 border border-slate-800/80 rounded-2xl p-8 text-center">
+              <Car className="w-8 h-8 text-slate-600 mx-auto mb-2" />
+              <h3 className="text-sm font-bold text-white">Brak aktywnych zleceń na dzień {format(new Date(selectedDate), 'd MMMM', { locale: pl })}</h3>
               <p className="text-xs text-slate-400 mt-1">
                 {completedCount > 0 && !showCompleted
                   ? `Wszystkie ${completedCount} aut na ten dzień zostały już wydane (zrealizowane).`
@@ -1267,128 +1259,137 @@ export default function OrderFormAndList({
               </p>
             </div>
           ) : (
-            <div className="space-y-3">
+            <div className="space-y-2">
               {filteredOrders.map((order) => {
                 const isReady = order.status === 'READY';
                 const isInProgress = order.status === 'IN_PROGRESS';
+                const hasDelay = order.scheduledStartTime &&
+                  (new Date(order.scheduledStartTime).getTime() + (order.durationMin || 30) * 60000) > new Date(order.targetReadyTime).getTime() &&
+                  order.status !== 'COMPLETED';
 
                 return (
                   <div
                     key={order.id}
-                    className={`rounded-2xl p-5 border transition-all relative overflow-hidden ${order.isPriority
-                      ? 'bg-gradient-to-r from-red-950/70 via-amber-950/50 to-slate-900 border-amber-500 shadow-xl shadow-amber-500/15 ring-1 ring-amber-500/30'
+                    className={`rounded-xl p-2.5 sm:p-3 border transition-all relative overflow-hidden ${order.isPriority
+                      ? 'bg-gradient-to-r from-red-950/70 via-amber-950/40 to-slate-900 border-amber-500 shadow-md shadow-amber-500/10 ring-1 ring-amber-500/30'
                       : isReady
-                        ? 'bg-gradient-to-r from-emerald-950/80 to-slate-900 border-emerald-500/60 shadow-lg shadow-emerald-500/10'
+                        ? 'bg-gradient-to-r from-emerald-950/70 to-slate-900 border-emerald-500/60 shadow-sm'
                         : isInProgress
-                          ? 'bg-gradient-to-r from-amber-950/60 to-slate-900 border-amber-500/50 shadow-lg shadow-amber-500/10'
+                          ? 'bg-gradient-to-r from-amber-950/50 to-slate-900 border-amber-500/50 shadow-sm'
                           : 'bg-slate-900 border-slate-800 hover:border-slate-700'
                       }`}
                   >
-                    {/* Top Row: Plate + Badges */}
-                    <div className="flex items-start justify-between gap-2 mb-3">
-                      <div className="flex items-center gap-3">
-                        <div className="px-3.5 py-1.5 rounded-xl bg-slate-950 border border-slate-700 font-mono font-black text-lg text-white tracking-widest shadow flex items-center gap-2">
+                    {/* Main Single Row */}
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      {/* Left: Plate + Model + Dept + Priority */}
+                      <div className="flex items-center gap-2 min-w-0 flex-1 flex-wrap">
+                        {/* Plate Badge */}
+                        <div className="px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-700 font-mono font-black text-sm text-white tracking-wider shadow-inner flex items-center gap-1.5 flex-shrink-0">
                           {order.isPriority && (
-                            <span className="text-amber-400 animate-pulse" title="Zlecenie Ekspresowe">
+                            <span className="text-amber-400 text-xs animate-pulse" title="Zlecenie Ekspresowe">
                               ⚡
                             </span>
                           )}
                           <span>{order.licensePlate}</span>
                         </div>
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <p className="font-bold text-sm text-slate-200">
-                              {order.carModel || 'Pojazd salonowy'}
-                            </p>
-                            {order.isPriority && (
-                              <span className="inline-flex items-center gap-1 text-[10px] font-black px-2 py-0.5 rounded-full bg-gradient-to-r from-amber-500 to-red-500 text-slate-950 uppercase tracking-wider shadow animate-pulse">
-                                <Zap className="w-3 h-3 fill-current" /> EKSPRES
-                              </span>
-                            )}
-                          </div>
+
+                        {/* Model & Department */}
+                        <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
+                          <span className="font-bold text-xs text-slate-100 truncate max-w-[140px] sm:max-w-[180px]">
+                            {order.carModel || 'Pojazd salonowy'}
+                          </span>
                           <span
-                            className="inline-block text-[10px] font-black px-2 py-0.5 rounded text-white mt-0.5"
+                            className="text-[9px] font-black px-1.5 py-0.2 rounded text-white flex-shrink-0"
                             style={{ backgroundColor: order.department?.color || '#3b82f6' }}
                           >
                             {order.department?.name}
                           </span>
-                        </div>
-                      </div>
-
-                      <div>{getStatusBadge(order.status)}</div>
-                    </div>
-
-                    {/* Express Audit Log Details */}
-                    {order.isPriority && (
-                      <div className="mb-3 p-3 rounded-xl bg-amber-950/50 border border-amber-500/40 text-xs text-amber-200 space-y-1">
-                        <div className="flex items-center gap-1.5 font-bold text-amber-300">
-                          <ShieldAlert className="w-3.5 h-3.5 text-amber-400" />
-                          <span>Audit Log (Zlecenie Priorytetowe):</span>
-                        </div>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] pt-1">
-                          <div>
-                            <span className="text-slate-400">Zatwierdził: </span>
-                            <span className="font-semibold text-white">{order.priorityAuthorizer || 'Brak danych'}</span>
-                          </div>
-                          <div>
-                            <span className="text-slate-400">Powód: </span>
-                            <span className="font-semibold text-amber-100">{order.priorityReason || 'Wydanie natychmiastowe'}</span>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Delay Warning Notification */}
-                    {order.scheduledStartTime &&
-                      (new Date(order.scheduledStartTime).getTime() + (order.durationMin || 30) * 60000) > new Date(order.targetReadyTime).getTime() &&
-                      order.status !== 'COMPLETED' && (
-                        <div className="mb-3 p-3.5 rounded-2xl bg-rose-950/80 border border-rose-500 text-rose-200 text-xs font-bold flex items-start gap-2.5 shadow-lg animate-pulse">
-                          <AlertTriangle className="w-4 h-4 text-rose-400 flex-shrink-0 mt-0.5" />
-                          <div>
-                            <span className="text-rose-300 block font-black uppercase">
-                              ⚠️ Uwaga: Zakończenie mycia nastąpi po terminie wydania!
+                          {order.isPriority && (
+                            <span className="inline-flex items-center gap-0.5 text-[9px] font-black px-1.5 py-0.2 rounded-full bg-gradient-to-r from-amber-500 to-red-500 text-slate-950 uppercase tracking-wider animate-pulse flex-shrink-0">
+                              <Zap className="w-2.5 h-2.5 fill-current" /> EKSPRES
                             </span>
-                            <span className="text-[11px] text-rose-200/90 font-normal block mt-1 leading-relaxed">
-                              Usługa <strong>{order.category?.name || 'Mycie'}</strong> trwa <strong>{order.durationMin || 30} min</strong>.
-                              Zaplanowany czas pracy myjni: <strong>{format(new Date(order.scheduledStartTime), 'HH:mm', { locale: pl })} – {format(new Date(new Date(order.scheduledStartTime).getTime() + (order.durationMin || 30) * 60000), 'HH:mm', { locale: pl })}</strong> ({format(new Date(order.scheduledStartTime), 'd MMM', { locale: pl })}).
-                              Wnioskowana gotowość: <strong>{format(new Date(order.targetReadyTime), 'HH:mm (d MMM)', { locale: pl })}</strong>.
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Center / Right: Service • Scheduled Start / Ready Time • Washer • Status */}
+                      <div className="flex items-center gap-2 sm:gap-3 flex-wrap text-xs justify-between sm:justify-end">
+                        {/* Service */}
+                        <div className="flex items-center gap-1 text-[11px] text-slate-300">
+                          <span className="text-slate-400">Usługa:</span>
+                          <span className="font-semibold text-slate-200">{order.category?.name}</span>
+                        </div>
+
+                        {/* Scheduled Start Time (when assigned) */}
+                        {order.scheduledStartTime && (
+                          <div className="flex items-center gap-1 text-[11px]">
+                            <span className="text-slate-400">Start:</span>
+                            <span className="font-mono font-bold text-emerald-300 bg-emerald-950/50 px-1.5 py-0.5 rounded border border-emerald-500/30">
+                              {format(new Date(order.scheduledStartTime), 'HH:mm', { locale: pl })}
                             </span>
                           </div>
-                        </div>
-                      )}
+                        )}
 
-                    {/* Middle Row: Category + Times */}
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 bg-slate-950/60 p-3 rounded-xl border border-slate-800/80 text-xs mb-3">
-                      <div>
-                        <span className="text-slate-400 block text-[10px] uppercase font-semibold">Usługa:</span>
-                        <span className="font-bold text-slate-200">{order.category?.name}</span>
-                      </div>
-                      <div>
-                        <span className="text-slate-400 block text-[10px] uppercase font-semibold">Gotowe na:</span>
-                        <span className="font-bold text-amber-300">
-                          {format(new Date(order.targetReadyTime), 'HH:mm (d MMM)', { locale: pl })}
-                        </span>
-                      </div>
-                      <div>
-                        <span className="text-slate-400 block text-[10px] uppercase font-semibold">Pracownik myjni:</span>
-                        <span className="font-bold text-sky-400">
-                          {order.assignedEmployee?.name || 'Do przydzielenia'}
-                        </span>
+                        {/* Target Ready Time */}
+                        <div className="flex items-center gap-1 text-[11px]">
+                          <span className="text-slate-400">Gotowe:</span>
+                          <span className="font-mono font-bold text-amber-300 bg-amber-950/40 px-1.5 py-0.5 rounded border border-amber-500/20">
+                            {format(new Date(order.targetReadyTime), 'HH:mm (d MMM)', { locale: pl })}
+                          </span>
+                        </div>
+
+                        {/* Washer staff (shown when assigned) */}
+                        {order.assignedEmployee?.name && (
+                          <div className="flex items-center gap-1 text-[11px]">
+                            <span className="text-slate-400">Pracownik:</span>
+                            <span className="font-semibold text-emerald-300 bg-emerald-950/40 px-1.5 py-0.5 rounded border border-emerald-500/30">
+                              {order.assignedEmployee.name}
+                            </span>
+                          </div>
+                        )}
+
+                        {/* Status Badge */}
+                        <div className="flex-shrink-0 scale-90 sm:scale-95 origin-right">
+                          {getStatusBadge(order)}
+                        </div>
                       </div>
                     </div>
 
-                    {/* Bottom Row: Notes + Contact */}
-                    {order.notes && (
-                      <div className="text-xs text-slate-300 bg-slate-800/50 px-3 py-2 rounded-lg flex items-center gap-2 mb-2">
-                        <FileText className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
-                        <span className="italic">{order.notes}</span>
+                    {/* Compact Details Subline: Notes / Express Audit / Delay Warning / Reporter */}
+                    {(order.isPriority || order.notes || hasDelay) && (
+                      <div className="mt-2 pt-1.5 border-t border-slate-800/60 flex flex-wrap items-center gap-2 text-[10px]">
+                        {/* Express Audit Log */}
+                        {order.isPriority && (
+                          <span className="text-amber-300 flex items-center gap-1 bg-amber-950/50 px-1.5 py-0.5 rounded border border-amber-500/30">
+                            <ShieldAlert className="w-3 h-3 text-amber-400 flex-shrink-0" />
+                            <span><strong>Zatw:</strong> {order.priorityAuthorizer || '—'}</span>
+                            <span>•</span>
+                            <span className="italic">"{order.priorityReason || 'Ekspres'}"</span>
+                          </span>
+                        )}
+
+                        {/* Delay alert */}
+                        {hasDelay && (
+                          <span className="text-rose-300 flex items-center gap-1 bg-rose-950/60 px-1.5 py-0.5 rounded border border-rose-500/40 font-bold">
+                            <AlertTriangle className="w-3 h-3 text-rose-400 flex-shrink-0" />
+                            <span>Koniec mycia po terminie gotowości!</span>
+                          </span>
+                        )}
+
+                        {/* Notes */}
+                        {order.notes && (
+                          <span className="text-slate-300 flex items-center gap-1 italic truncate max-w-xs">
+                            <FileText className="w-3 h-3 text-slate-400 flex-shrink-0" />
+                            <span>{order.notes}</span>
+                          </span>
+                        )}
+
+                        {/* Submitter and Order Number */}
+                        <span className="ml-auto text-slate-500 font-mono text-[10px]">
+                          {order.contactPerson ? `${order.contactPerson} • ` : ''}{order.orderNumber}
+                        </span>
                       </div>
                     )}
-
-                    <div className="flex items-center justify-between text-[11px] text-slate-500 pt-1 border-t border-slate-800/60">
-                      <span>Zgłosił: {order.contactPerson || order.department?.name}</span>
-                      <span>Nr zlecenia: {order.orderNumber}</span>
-                    </div>
                   </div>
                 );
               })}

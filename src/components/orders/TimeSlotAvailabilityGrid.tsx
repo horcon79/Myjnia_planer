@@ -195,21 +195,21 @@ export default function TimeSlotAvailabilityGrid({
   const availableSlotsCount = futureSlots.filter((s) => !s.isClosed && s.availableSlots > 0).length;
 
   return (
-    <div className="rounded-2xl bg-slate-950/90 border border-slate-800 p-3.5 space-y-3 shadow-inner">
+    <div className="rounded-xl bg-slate-950/90 border border-slate-800 p-2.5 space-y-2 shadow-inner">
       {/* Nagłówek i podsumowanie */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-slate-800/80 pb-2.5">
-        <div className="flex items-center gap-2">
-          <Clock className="w-4 h-4 text-sky-400" />
-          <span className="text-xs font-bold text-slate-200 uppercase tracking-wider">
-            Wolne sloty gotowości ({format(new Date(targetReadyDate), 'd MMMM', { locale: pl })})
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1.5 border-b border-slate-800/80 pb-2">
+        <div className="flex items-center gap-1.5">
+          <Clock className="w-3.5 h-3.5 text-sky-400" />
+          <span className="text-[11px] font-bold text-slate-200 uppercase tracking-wider">
+            Wolne sloty gotowości ({format(new Date(targetReadyDate), 'd MMM', { locale: pl })})
           </span>
         </div>
 
-        <div className="flex items-center gap-2 text-[11px]">
+        <div className="flex items-center gap-1.5 text-[10px]">
           {isToday && (
-            <span className="px-2 py-0.5 rounded-md bg-sky-500/10 text-sky-300 font-semibold border border-sky-500/20 flex items-center gap-1">
-              <Sparkles className="w-3 h-3 text-sky-400" />
-              Tylko do przodu ({format(now, 'HH:mm')})
+            <span className="px-1.5 py-0.2 rounded bg-sky-500/10 text-sky-300 font-semibold border border-sky-500/20 flex items-center gap-1">
+              <Sparkles className="w-2.5 h-2.5 text-sky-400" />
+              Do przodu ({format(now, 'HH:mm')})
             </span>
           )}
           <span className="text-slate-400 font-medium">
@@ -220,18 +220,18 @@ export default function TimeSlotAvailabilityGrid({
 
       {/* Komunikat o braku okien na dziś (np. pod koniec dnia) */}
       {isToday && futureSlots.length === 0 && (
-        <div className="p-3.5 rounded-xl bg-amber-950/40 border border-amber-500/30 text-amber-200 text-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5">
-          <div className="flex items-center gap-2">
-            <AlertTriangle className="w-4 h-4 text-amber-400 flex-shrink-0" />
-            <span>Wszystkie okna robocze na dziś już upłynęły (zamknięcie myjni).</span>
+        <div className="p-2.5 rounded-xl bg-amber-950/40 border border-amber-500/30 text-amber-200 text-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5">
+            <AlertTriangle className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" />
+            <span className="text-[11px]">Wszystkie okna robocze na dziś już upłynęły.</span>
           </div>
           {onSwitchToTomorrow && (
             <button
               type="button"
               onClick={onSwitchToTomorrow}
-              className="px-3 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs flex items-center gap-1 transition-colors"
+              className="px-2.5 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-[10px] flex items-center gap-1 transition-colors"
             >
-              <SunMedium className="w-3.5 h-3.5" />
+              <SunMedium className="w-3 h-3" />
               <span>Przełącz na jutro</span>
             </button>
           )}
@@ -240,26 +240,26 @@ export default function TimeSlotAvailabilityGrid({
 
       {/* Siatka widocznych slotów */}
       {visibleSlots.length > 0 && (
-        <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-1.5 pt-0.5">
+        <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-1 pt-0.5">
           {visibleSlots.map((slot) => {
             const isDisabled = slot.isPastOrTooEarly || slot.isClosed;
             const isFullyBooked = !isDisabled && slot.availableSlots <= 0;
 
             let cardBg = 'bg-slate-900/90 border-slate-800 text-slate-300 hover:border-slate-700 hover:bg-slate-850';
-            let badgeText = `${slot.availableSlots}/${slot.totalCapacity} wolne`;
+            let badgeText = `${slot.availableSlots}/${slot.totalCapacity}`;
             let badgeColor = 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20';
 
             if (isDisabled) {
               cardBg = 'bg-slate-950/40 border-slate-900 text-slate-600 opacity-40 cursor-not-allowed';
-              badgeText = slot.isClosed ? 'Zamknięte' : isToday ? 'Minęło' : 'Przed otwarciem';
+              badgeText = slot.isClosed ? 'Zamkn.' : isToday ? 'Minęło' : 'Przed';
               badgeColor = 'text-slate-500 bg-slate-800/40 border-slate-800';
             } else if (isFullyBooked) {
               cardBg = 'bg-rose-950/20 border-rose-900/40 text-rose-300 hover:border-rose-700/60';
-              badgeText = 'Pełne (0)';
+              badgeText = 'Pełne';
               badgeColor = 'text-rose-400 bg-rose-500/15 border-rose-500/30';
             } else if (slot.availableSlots <= 1) {
               cardBg = 'bg-amber-950/20 border-amber-900/40 text-amber-200 hover:border-amber-700/60';
-              badgeText = `${slot.availableSlots}/${slot.totalCapacity} wolne`;
+              badgeText = `${slot.availableSlots}/${slot.totalCapacity}`;
               badgeColor = 'text-amber-400 bg-amber-500/15 border-amber-500/30';
             }
 
@@ -273,7 +273,7 @@ export default function TimeSlotAvailabilityGrid({
                 type="button"
                 disabled={isDisabled}
                 onClick={() => onSelectHour(slot.timeStr)}
-                className={`p-2 rounded-xl border transition-all text-left flex flex-col justify-between gap-1 relative group ${cardBg}`}
+                className={`p-1.5 rounded-lg border transition-all text-left flex flex-col justify-between gap-0.5 relative group ${cardBg}`}
                 title={
                   isDisabled
                     ? slot.isClosed
@@ -283,16 +283,16 @@ export default function TimeSlotAvailabilityGrid({
                 }
               >
                 <div className="flex items-center justify-between">
-                  <span className={`text-xs font-mono font-extrabold ${slot.isSelected ? 'text-sky-300' : ''}`}>
+                  <span className={`text-[11px] font-mono font-extrabold ${slot.isSelected ? 'text-sky-300' : ''}`}>
                     {slot.timeStr}
                   </span>
                   {slot.isSelected && (
-                    <CheckCircle2 className="w-3.5 h-3.5 text-sky-400" />
+                    <CheckCircle2 className="w-3 h-3 text-sky-400" />
                   )}
                 </div>
 
                 <span
-                  className={`text-[9px] font-bold px-1.5 py-0.5 rounded-md border inline-block text-center leading-tight truncate ${badgeColor}`}
+                  className={`text-[8px] font-bold px-1 py-0.2 rounded border inline-block text-center leading-tight truncate ${badgeColor}`}
                 >
                   {badgeText}
                 </span>
