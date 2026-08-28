@@ -694,11 +694,17 @@ export default function PlannerBoard({
     return slots;
   }, [workStartHour, workEndHour]);
 
-  // Unassigned / Unscheduled orders strictly on this viewed date
+  // Unassigned / Unscheduled orders strictly on this viewed date (Priority/Express orders first)
   const unassignedOrders = useMemo(() => {
-    return orders.filter(
-      o => !o.scheduledStartTime || !o.assignedEmployeeId || (o.status === 'PLANNED' && !o.scheduledStartTime)
-    );
+    return orders
+      .filter(
+        o => !o.scheduledStartTime || !o.assignedEmployeeId || (o.status === 'PLANNED' && !o.scheduledStartTime)
+      )
+      .sort((a, b) => {
+        if (a.isPriority && !b.isPriority) return -1;
+        if (!a.isPriority && b.isPriority) return 1;
+        return new Date(a.targetReadyTime).getTime() - new Date(b.targetReadyTime).getTime();
+      });
   }, [orders]);
 
   // Overdue uncompleted orders on TODAY (earlier hours of today)
@@ -1006,7 +1012,9 @@ export default function PlannerBoard({
             {pastUnfinishedOrders.map((pOrd) => (
               <div
                 key={pOrd.id}
-                className="bg-slate-950/90 border border-rose-500/50 rounded-2xl p-3.5 flex flex-col justify-between shadow-lg"
+                className={`bg-slate-950/90 border rounded-2xl p-3.5 flex flex-col justify-between shadow-lg ${
+                  pOrd.isPriority ? 'border-amber-500 ring-2 ring-amber-500/50 shadow-amber-500/20' : 'border-rose-500/50'
+                }`}
               >
                 <div>
                   <div className="flex items-start justify-between gap-2 mb-2">
@@ -1020,6 +1028,11 @@ export default function PlannerBoard({
                       >
                         {pOrd.department?.code}
                       </span>
+                      {pOrd.isPriority && (
+                        <span className="text-[9px] font-black px-1.5 py-0.5 rounded bg-amber-500 text-slate-950 uppercase flex items-center gap-0.5 shadow animate-pulse">
+                          <Zap className="w-2.5 h-2.5 fill-current" /> EKSPRES
+                        </span>
+                      )}
                     </div>
                     <span className="text-[10px] font-black px-2 py-0.5 rounded bg-rose-500/30 text-rose-300 border border-rose-500/40 uppercase">
                       Zaległe z {format(new Date(pOrd.targetReadyTime), 'd MMM')}
@@ -1084,7 +1097,9 @@ export default function PlannerBoard({
               {overdueOrdersToday.map((ord) => (
                 <div
                   key={ord.id}
-                  className="bg-slate-900 border border-amber-500/40 rounded-2xl p-3 flex flex-col justify-between shadow"
+                  className={`bg-slate-900 border rounded-2xl p-3 flex flex-col justify-between shadow ${
+                    ord.isPriority ? 'border-amber-500 ring-2 ring-amber-500/50 shadow-amber-500/20' : 'border-amber-500/40'
+                  }`}
                 >
                   <div>
                     <div className="flex items-start justify-between gap-2 mb-1.5">
@@ -1098,6 +1113,11 @@ export default function PlannerBoard({
                         >
                           {ord.department?.code}
                         </span>
+                        {ord.isPriority && (
+                          <span className="text-[8px] font-black px-1.5 py-0.5 rounded bg-amber-500 text-slate-950 uppercase flex items-center gap-0.5 shadow">
+                            <Zap className="w-2 h-2 fill-current" /> EKSPRES
+                          </span>
+                        )}
                       </div>
                       <span className="text-[10px] font-black px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 uppercase whitespace-nowrap">
                         Plan: {format(new Date(ord.scheduledStartTime), 'HH:mm')}
@@ -1136,6 +1156,8 @@ export default function PlannerBoard({
         </div>
       )}
 
+
+
       {/* Unscheduled / Waiting Queue Bar for viewed date (if any) */}
       {unassignedOrders.length > 0 && (
         <div className="bg-gradient-to-r from-slate-900 via-sky-950/40 to-slate-900 border border-sky-500/30 rounded-2xl p-3.5 shadow-lg">
@@ -1150,35 +1172,61 @@ export default function PlannerBoard({
           </div>
 
           <div className="flex items-center gap-2.5 overflow-x-auto pb-1.5">
-            {unassignedOrders.map((ord) => (
-              <div
-                key={ord.id}
-                onClick={() => setEditingOrder(ord)}
-                className="flex-shrink-0 bg-slate-950 border border-slate-700 hover:border-sky-400 p-2.5 rounded-xl cursor-pointer transition-all shadow hover:scale-102 flex items-center gap-2.5"
-              >
-                <div 
-                  className="w-1.5 h-9 rounded-full"
-                  style={{ backgroundColor: ord.department?.color || '#3b82f6' }}
-                />
-                <div>
-                  <div className="flex items-center gap-1.5">
-                    <span className="font-mono font-black text-xs text-white">{ord.licensePlate}</span>
-                    <span className="text-[9px] font-bold px-1 py-0.2 rounded bg-slate-800 text-slate-300">
-                      {ord.department?.code}
-                    </span>
+            {unassignedOrders.map((ord) => {
+              const isOrdExpress = ord.isPriority;
+
+              return (
+                <div
+                  key={ord.id}
+                  onClick={() => setEditingOrder(ord)}
+                  className={`flex-shrink-0 p-2.5 rounded-xl cursor-pointer transition-all shadow hover:scale-102 flex items-center gap-2.5 ${
+                    isOrdExpress
+                      ? 'bg-gradient-to-r from-amber-950/90 via-slate-950 to-slate-900 border-2 border-amber-500 ring-2 ring-amber-400/60 shadow-lg shadow-amber-500/25 hover:border-amber-300 animate-pulse-slow'
+                      : 'bg-slate-950 border border-slate-700 hover:border-sky-400'
+                  }`}
+                >
+                  <div 
+                    className="w-1.5 h-9 rounded-full"
+                    style={{ backgroundColor: ord.department?.color || '#3b82f6' }}
+                  />
+                  <div>
+                    <div className="flex items-center gap-1.5">
+                      <span className={`font-mono font-black text-xs ${isOrdExpress ? 'text-amber-300' : 'text-white'}`}>
+                        {ord.licensePlate}
+                      </span>
+                      <span className="text-[9px] font-bold px-1 py-0.2 rounded bg-slate-800 text-slate-300">
+                        {ord.department?.code}
+                      </span>
+                      {isOrdExpress && (
+                        <span className="text-[8px] font-black px-1.5 py-0.5 rounded bg-amber-500 text-slate-950 uppercase flex items-center gap-0.5 shadow font-sans">
+                          <Zap className="w-2 h-2 fill-current" /> EKSPRES
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-slate-300 truncate max-w-[130px]">{ord.category?.name}</p>
+                    <div className="flex items-center gap-2 text-[10px]">
+                      <span className="text-amber-300 font-bold">
+                        Na: {format(new Date(ord.targetReadyTime), 'HH:mm')}
+                      </span>
+                      {isOrdExpress && ord.priorityAuthorizer && (
+                        <span className="text-amber-400/90 truncate max-w-[90px]" title={`Zatwierdził: ${ord.priorityAuthorizer}`}>
+                          ⚡ {ord.priorityAuthorizer}
+                        </span>
+                      )}
+                    </div>
                   </div>
-                  <p className="text-[11px] text-slate-300 truncate max-w-[130px]">{ord.category?.name}</p>
-                  <p className="text-[10px] text-amber-300 font-bold">
-                    Na: {format(new Date(ord.targetReadyTime), 'HH:mm')}
-                  </p>
+                  {canEdit && (
+                    <button className={`p-1.5 rounded-lg transition-colors ${
+                      isOrdExpress 
+                        ? 'bg-amber-500 text-slate-950 hover:bg-amber-400 font-bold' 
+                        : 'bg-sky-500/20 text-sky-400 hover:bg-sky-500 hover:text-white'
+                    }`}>
+                      <ArrowRight className="w-3.5 h-3.5" />
+                    </button>
+                  )}
                 </div>
-                {canEdit && (
-                  <button className="p-1.5 rounded-lg bg-sky-500/20 text-sky-400 hover:bg-sky-500 hover:text-white transition-colors">
-                    <ArrowRight className="w-3.5 h-3.5" />
-                  </button>
-                )}
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
@@ -1406,7 +1454,23 @@ export default function PlannerBoard({
                             ? 'opacity-40 ring-2 ring-sky-400 scale-95'
                             : ''
                         } ${
-                          isOverdue
+                          ord.isPriority && !isCompleted
+                            ? isOverdue
+                              ? isCondensed
+                                ? 'bg-gradient-to-r from-rose-950 via-amber-950/80 to-slate-900 border-2 border-amber-500 ring-2 ring-amber-400/60 shadow-lg shadow-amber-500/30 text-white'
+                                : 'p-2 bg-gradient-to-r from-rose-950 via-amber-950/80 to-slate-900 border-2 border-amber-500 ring-2 ring-amber-400/60 shadow-lg shadow-amber-500/30 text-white'
+                              : isReady
+                              ? isCondensed
+                                ? 'bg-emerald-950 border-2 border-amber-400 ring-2 ring-amber-400/60 text-white pulse-ready'
+                                : 'p-2.5 sm:p-3 bg-emerald-950/90 border-2 border-amber-400 ring-2 ring-amber-400/60 text-white pulse-ready'
+                              : isInProgress
+                              ? isCondensed
+                                ? 'bg-gradient-to-r from-amber-950 via-slate-900 to-amber-950/90 border-2 border-amber-400 ring-2 ring-amber-400/80 shadow-lg shadow-amber-500/40 text-white pulse-in-progress'
+                                : 'p-2.5 sm:p-3 bg-gradient-to-r from-amber-950 via-slate-900 to-amber-950/90 border-2 border-amber-400 ring-2 ring-amber-400/80 shadow-lg shadow-amber-500/40 text-white pulse-in-progress'
+                              : isCondensed
+                              ? 'bg-gradient-to-r from-amber-950/90 via-slate-900 to-slate-900 border-2 border-amber-500 ring-2 ring-amber-400/70 shadow-lg shadow-amber-500/20 text-white hover:border-amber-300 cursor-pointer'
+                              : 'p-2.5 sm:p-3 bg-gradient-to-r from-amber-950/90 via-slate-900 to-slate-900 border-2 border-amber-500 ring-2 ring-amber-500/60 shadow-xl shadow-amber-500/25 text-white hover:border-amber-300'
+                            : isOverdue
                             ? isCondensed
                               ? 'bg-gradient-to-r from-rose-950/80 to-slate-900 border-rose-500/70 text-white'
                               : 'p-2 bg-gradient-to-r from-rose-950/70 to-slate-900 border-rose-500/60 text-white'
@@ -1428,8 +1492,10 @@ export default function PlannerBoard({
                         {isTight ? (
                           <>
                             <div className="flex items-center gap-1">
-                              <span className="font-mono font-black text-[10px] leading-tight bg-black/40 px-1 py-0.5 rounded border border-white/10 truncate max-w-[92px] flex items-center gap-1">
-                                {ord.isPriority && <span className="text-amber-400 font-bold" title={`⚡ Ekspres: ${ord.priorityAuthorizer || ''} - ${ord.priorityReason || ''}`}>⚡</span>}
+                              <span className={`font-mono font-black text-[10px] leading-tight bg-black/40 px-1 py-0.5 rounded border truncate max-w-[92px] flex items-center gap-1 ${
+                                ord.isPriority ? 'border-amber-500 text-amber-300' : 'border-white/10 text-white'
+                              }`}>
+                                {ord.isPriority && <Zap className="w-2.5 h-2.5 text-amber-400 fill-current animate-pulse flex-shrink-0" />}
                                 {ord.licensePlate}
                               </span>
                               <span
@@ -1438,6 +1504,11 @@ export default function PlannerBoard({
                               >
                                 {ord.department?.code}
                               </span>
+                              {ord.isPriority && (
+                                <span className="text-[7px] font-black px-1 py-0.2 rounded bg-amber-500 text-slate-950 uppercase flex-shrink-0 animate-pulse">
+                                  ⚡EKSP
+                                </span>
+                              )}
                               <span className="ml-auto font-bold text-sky-400 text-[9px] flex-shrink-0">⏱ {ord.durationMin}m</span>
                             </div>
 
@@ -1856,6 +1927,12 @@ export default function PlannerBoard({
                 {orderForConfirm.carModel ? <span className="text-slate-400 font-normal"> • {orderForConfirm.carModel}</span> : null}
               </p>
             )}
+            {orderForConfirm?.isPriority && (
+              <div className="mb-3 px-3 py-1.5 rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-300 text-xs font-bold inline-flex items-center gap-1.5">
+                <Zap className="w-3.5 h-3.5 fill-current text-amber-400" />
+                <span>Zlecenie Ekspresowe ({orderForConfirm.priorityAuthorizer || 'Wrzutka'})</span>
+              </div>
+            )}
             <p className="text-xs text-slate-400 mb-4">
               Zlecenie zostanie oznaczone jako zrealizowane.
             </p>
@@ -2000,16 +2077,21 @@ export default function PlannerBoard({
 
       {/* Edit / Schedule Order Modal */}
       {editingOrder && (
-        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-700 rounded-3xl p-6 w-full max-w-lg shadow-2xl animate-in fade-in zoom-in duration-150 max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between mb-4">
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4">
+          <div className="bg-slate-900 border border-slate-700 rounded-3xl p-4 sm:p-5 w-full max-w-md shadow-2xl animate-in fade-in zoom-in duration-150 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-3">
               <div>
-                <h3 className="text-lg font-extrabold text-white flex items-center gap-2">
-                  {canEdit ? <Edit3 className="w-5 h-5 text-sky-400" /> : <Eye className="w-5 h-5 text-sky-400" />}
+                <h3 className="text-base font-extrabold text-white flex items-center gap-2">
+                  {canEdit ? <Edit3 className="w-4 h-4 text-sky-400" /> : <Eye className="w-4 h-4 text-sky-400" />}
                   {canEdit ? `Harmonogram: ${editingOrder.licensePlate}` : `Podgląd: ${editingOrder.licensePlate}`}
+                  {editingOrder.isPriority && (
+                    <span className="text-[9px] font-black px-1.5 py-0.2 rounded bg-amber-500 text-slate-950 uppercase flex items-center gap-1 shadow">
+                      <Zap className="w-2.5 h-2.5 fill-current" /> EKSPRES
+                    </span>
+                  )}
                 </h3>
-                <p className="text-xs text-slate-400 mt-0.5">
-                  Wnioskowana data wydania przez dział: <strong className="text-amber-300">{format(new Date(editingOrder.targetReadyTime), 'd MMMM, HH:mm', { locale: pl })}</strong>
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  Termin wydania: <strong className="text-amber-300">{format(new Date(editingOrder.targetReadyTime), 'd MMMM, HH:mm', { locale: pl })}</strong>
                 </p>
               </div>
               <button
@@ -2020,16 +2102,37 @@ export default function PlannerBoard({
               </button>
             </div>
 
+            {/* Express Priority Banner in Modal - Ultra compact */}
+            {editingOrder.isPriority && (
+              <div className="mb-3 px-3 py-2 rounded-xl bg-gradient-to-r from-amber-950/80 via-slate-900 to-amber-950/70 border border-amber-500/80 text-amber-200 text-xs shadow-md">
+                <div className="flex items-center justify-between gap-1 mb-1">
+                  <div className="flex items-center gap-1.5 font-black text-amber-300 text-[11px] uppercase">
+                    <Zap className="w-3.5 h-3.5 fill-amber-400 text-amber-400 animate-pulse flex-shrink-0" />
+                    <span>Zlecenie EKSPRES</span>
+                  </div>
+                  <span className="text-[9px] font-black px-1.5 py-0.2 rounded bg-amber-500 text-slate-950 uppercase">
+                    PRIORYTET
+                  </span>
+                </div>
+                <div className="text-[10px] text-slate-300 leading-tight space-y-0.5">
+                  <p>Zatwierdził: <strong className="text-white">{editingOrder.priorityAuthorizer || 'Brak'}</strong></p>
+                  {editingOrder.priorityReason && (
+                    <p className="italic text-amber-200/90 truncate">Powód: {editingOrder.priorityReason}</p>
+                  )}
+                </div>
+              </div>
+            )}
+
             {/* Delay Warning Banner in Modal */}
             {isModalScheduleLate && (
-              <div className="mb-4 p-3.5 rounded-2xl bg-rose-950/80 border border-rose-500 text-rose-200 text-xs space-y-1.5 shadow-lg animate-pulse">
-                <div className="flex items-center gap-2 font-black text-rose-300">
-                  <AlertTriangle className="w-4 h-4 text-rose-400 flex-shrink-0" />
-                  <span>Uwaga: Zakończenie mycia nastąpi po terminie wydania!</span>
+              <div className="mb-3 p-2.5 rounded-xl bg-rose-950/80 border border-rose-500 text-rose-200 text-xs space-y-1 shadow-lg animate-pulse">
+                <div className="flex items-center gap-1.5 font-black text-rose-300 text-[11px]">
+                  <AlertTriangle className="w-3.5 h-3.5 text-rose-400 flex-shrink-0" />
+                  <span>Uwaga: Zakończenie mycia po terminie wydania!</span>
                 </div>
-                <p className="text-[11px] text-rose-200/90 leading-relaxed">
+                <p className="text-[10px] text-rose-200/90 leading-tight">
                   Usługa <strong>{editingOrder.category?.name || 'Mycie'}</strong> trwa <strong>{modalDuration} min</strong>.
-                  Zaplanowany czas pracy: <strong>{modalScheduleTime} – {(() => {
+                  Plan: <strong>{modalScheduleTime} – {(() => {
                     try {
                       const [h, m] = modalScheduleTime.split(':').map(Number);
                       const baseDate = new Date(modalScheduleDate);
@@ -2038,71 +2141,82 @@ export default function PlannerBoard({
                     } catch {
                       return '—';
                     }
-                  })()}</strong> ({format(new Date(modalScheduleDate), 'd MMM', { locale: pl })}).
-                  Wnioskowana gotowość: <strong>{format(new Date(editingOrder.targetReadyTime), 'HH:mm (d MMM)', { locale: pl })}</strong>.<br/>
-                  W module <em>Zgłoś Mycie</em> oraz na <em>Tablicy Statusów</em> wyświetli się informacja o przesunięciu terminu.
+                  })()}</strong>. Gotowość działu: <strong>{format(new Date(editingOrder.targetReadyTime), 'HH:mm', { locale: pl })}</strong>.
                 </p>
               </div>
             )}
 
             {!canEdit ? (
               /* Read-only order preview for departments */
-              <div className="space-y-4">
-                <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-3">
-                  <div className="grid grid-cols-2 gap-3 text-xs">
+              <div className="space-y-3">
+                <div className="bg-slate-950 p-3 rounded-2xl border border-slate-800 space-y-2.5">
+                  <div className="grid grid-cols-2 gap-2 text-xs">
                     <div>
-                      <span className="text-slate-400 block text-[10px] uppercase font-bold">Pojazd:</span>
-                      <span className="font-mono font-bold text-white text-sm">{editingOrder.licensePlate}</span>
-                      <p className="text-slate-300 text-[11px]">{editingOrder.carModel || '—'}</p>
+                      <span className="text-slate-400 block text-[9px] uppercase font-bold">Pojazd:</span>
+                      <span className="font-mono font-bold text-white text-xs">{editingOrder.licensePlate}</span>
+                      <p className="text-slate-300 text-[10px] truncate">{editingOrder.carModel || '—'}</p>
                     </div>
                     <div>
-                      <span className="text-slate-400 block text-[10px] uppercase font-bold">Dział Zgłaszający:</span>
-                      <span className="font-bold text-white">{editingOrder.department?.name} ({editingOrder.department?.code})</span>
+                      <span className="text-slate-400 block text-[9px] uppercase font-bold">Dział:</span>
+                      <span className="font-bold text-white text-xs">{editingOrder.department?.name}</span>
                     </div>
                     <div>
-                      <span className="text-slate-400 block text-[10px] uppercase font-bold">Zakres Mycia:</span>
-                      <span className="font-bold text-white">{editingOrder.category?.name}</span>
-                      <p className="text-sky-400 font-bold text-[10px]">⏱ {editingOrder.durationMin} min</p>
+                      <span className="text-slate-400 block text-[9px] uppercase font-bold">Usługa:</span>
+                      <span className="font-bold text-white text-xs truncate block">{editingOrder.category?.name}</span>
+                      <p className="text-sky-400 font-bold text-[9px]">⏱ {editingOrder.durationMin} min</p>
                     </div>
                     <div>
-                      <span className="text-slate-400 block text-[10px] uppercase font-bold">Status:</span>
-                      <span className="font-bold text-emerald-400">
-                        {editingOrder.status === 'PLANNED' && 'Zaplanowane / W kolejce'}
+                      <span className="text-slate-400 block text-[9px] uppercase font-bold">Status:</span>
+                      <span className="font-bold text-emerald-400 text-xs">
+                        {editingOrder.status === 'PLANNED' && 'W kolejce'}
                         {editingOrder.status === 'IN_PROGRESS' && 'W trakcie mycia'}
-                        {editingOrder.status === 'READY' && 'Gotowe do odbioru'}
-                        {editingOrder.status === 'COMPLETED' && 'Wydane / Zakończone'}
+                        {editingOrder.status === 'READY' && 'Gotowe'}
+                        {editingOrder.status === 'COMPLETED' && 'Wydane'}
                       </span>
                     </div>
                     <div>
-                      <span className="text-slate-400 block text-[10px] uppercase font-bold">Wymagany odbiór:</span>
-                      <span className="font-bold text-amber-300">
-                        {format(new Date(editingOrder.targetReadyTime), 'd MMMM yyyy, HH:mm', { locale: pl })}
+                      <span className="text-slate-400 block text-[9px] uppercase font-bold">Odbiór:</span>
+                      <span className="font-bold text-amber-300 text-[11px]">
+                        {format(new Date(editingOrder.targetReadyTime), 'd MMM, HH:mm', { locale: pl })}
                       </span>
                     </div>
                     <div>
-                      <span className="text-slate-400 block text-[10px] uppercase font-bold">Start w planerze:</span>
-                      <span className="font-bold text-sky-400">
+                      <span className="text-slate-400 block text-[9px] uppercase font-bold">Start w planerze:</span>
+                      <span className="font-bold text-sky-400 text-[11px]">
                         {editingOrder.scheduledStartTime
-                          ? format(new Date(editingOrder.scheduledStartTime), 'd MMMM yyyy, HH:mm', { locale: pl })
-                          : 'W poczekalni (brak terminu)'}
+                          ? format(new Date(editingOrder.scheduledStartTime), 'd MMM, HH:mm', { locale: pl })
+                          : 'W poczekalni'}
                       </span>
                     </div>
                     <div>
-                      <span className="text-slate-400 block text-[10px] uppercase font-bold">Przypisany myjkowy:</span>
-                      <span className="font-bold text-white">
+                      <span className="text-slate-400 block text-[9px] uppercase font-bold">Pracownik:</span>
+                      <span className="font-bold text-white text-xs">
                         {employees.find(e => e.id === editingOrder.assignedEmployeeId)?.name || 'Nieprzypisany'}
                       </span>
                     </div>
                     <div>
-                      <span className="text-slate-400 block text-[10px] uppercase font-bold">Osoba zgłaszająca:</span>
-                      <span className="font-bold text-slate-300">{editingOrder.contactPerson || '—'}</span>
+                      <span className="text-slate-400 block text-[9px] uppercase font-bold">Zgłaszający:</span>
+                      <span className="font-bold text-slate-300 text-xs">{editingOrder.contactPerson || '—'}</span>
                     </div>
+                    {editingOrder.isPriority && (
+                      <div className="col-span-2 p-2 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[11px]">
+                        <span className="block text-[9px] uppercase font-black text-amber-400">Priorytet Ekspres:</span>
+                        <p className="font-semibold text-white">
+                          Zatwierdził: <strong>{editingOrder.priorityAuthorizer || '—'}</strong>
+                        </p>
+                        {editingOrder.priorityReason && (
+                          <p className="text-[10px] text-amber-200/90 italic mt-0.5 truncate">
+                            Powód: {editingOrder.priorityReason}
+                          </p>
+                        )}
+                      </div>
+                    )}
                   </div>
 
                   {editingOrder.notes && (
-                    <div className="pt-2.5 border-t border-slate-800">
-                      <span className="text-slate-400 block text-[10px] uppercase font-bold mb-1">Uwagi do zlecenia:</span>
-                      <p className="text-slate-200 text-xs italic bg-slate-900 p-2.5 rounded-xl border border-slate-800">
+                    <div className="pt-2 border-t border-slate-800">
+                      <span className="text-slate-400 block text-[9px] uppercase font-bold mb-0.5">Uwagi:</span>
+                      <p className="text-slate-200 text-xs italic bg-slate-900 p-2 rounded-xl border border-slate-800">
                         {editingOrder.notes}
                       </p>
                     </div>
@@ -2113,25 +2227,25 @@ export default function PlannerBoard({
                   <button
                     type="button"
                     onClick={() => setEditingOrder(null)}
-                    className="w-full py-3.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs transition-colors"
+                    className="w-full py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs transition-colors"
                   >
                     Zamknij Podgląd
                   </button>
                 </div>
               </div>
             ) : (
-              <div className="space-y-4">
+              <div className="space-y-3">
                 
                 {/* Date Selection (Dziś / Jutro / Pojutrze + Date Input) */}
-                <div className="bg-slate-950 p-3.5 rounded-2xl border border-slate-800 space-y-2">
-                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-400">
+                <div className="bg-slate-950 p-2.5 sm:p-3 rounded-2xl border border-slate-800 space-y-1.5">
+                  <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400">
                     1. Dzień Realizacji Mycia
                   </label>
-                  <div className="flex flex-wrap items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-1.5">
                     <button
                       type="button"
                       onClick={() => setModalScheduleDate(format(new Date(), 'yyyy-MM-dd'))}
-                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                      className={`px-2.5 py-1 rounded-xl text-xs font-bold transition-all ${
                         modalScheduleDate === format(new Date(), 'yyyy-MM-dd')
                           ? 'bg-sky-500 text-white shadow'
                           : 'bg-slate-800 text-slate-400 hover:text-white'
@@ -2142,7 +2256,7 @@ export default function PlannerBoard({
                     <button
                       type="button"
                       onClick={() => setModalScheduleDate(format(addDays(new Date(), 1), 'yyyy-MM-dd'))}
-                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                      className={`px-2.5 py-1 rounded-xl text-xs font-bold transition-all ${
                         modalScheduleDate === format(addDays(new Date(), 1), 'yyyy-MM-dd')
                           ? 'bg-sky-500 text-white shadow'
                           : 'bg-slate-800 text-slate-400 hover:text-white'
@@ -2153,7 +2267,7 @@ export default function PlannerBoard({
                     <button
                       type="button"
                       onClick={() => setModalScheduleDate(format(addDays(new Date(), 2), 'yyyy-MM-dd'))}
-                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                      className={`px-2.5 py-1 rounded-xl text-xs font-bold transition-all ${
                         modalScheduleDate === format(addDays(new Date(), 2), 'yyyy-MM-dd')
                           ? 'bg-sky-500 text-white shadow'
                           : 'bg-slate-800 text-slate-400 hover:text-white'
@@ -2165,20 +2279,20 @@ export default function PlannerBoard({
                       type="date"
                       value={modalScheduleDate}
                       onChange={(e) => setModalScheduleDate(e.target.value)}
-                      className="px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-700 text-white text-xs font-bold focus:border-sky-500"
+                      className="px-2.5 py-1 rounded-xl bg-slate-900 border border-slate-700 text-white text-xs font-bold focus:border-sky-500"
                     />
                   </div>
                 </div>
 
                 {/* Employee Selection (Restricted to active shift staff) */}
                 <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">
-                    2. Przypisany Pracownik Myjni (ze zmiany)
+                  <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1">
+                    2. Przypisany Pracownik Myjni
                   </label>
                   <select
                     value={modalEmployeeId}
                     onChange={(e) => setModalEmployeeId(e.target.value)}
-                    className="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-700 text-white font-bold text-sm focus:outline-none focus:border-sky-500"
+                    className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-white font-bold text-xs focus:outline-none focus:border-sky-500"
                   >
                     {(activeEmployees.length > 0 ? activeEmployees : employees).map(e => (
                       <option key={e.id} value={e.id}>{e.name} ({e.shortName})</option>
@@ -2187,32 +2301,32 @@ export default function PlannerBoard({
                 </div>
 
                 {/* Time Selection */}
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-2 gap-2.5">
                   <div>
-                    <div className="flex items-center justify-between mb-1.5">
-                      <label className="block text-xs font-bold uppercase tracking-wider text-slate-400">
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400">
                         Godzina Startu
                       </label>
                       <button
                         type="button"
                         onClick={() => setModalScheduleTime(getRoundedCurrentTime(30))}
-                        className="text-[10px] font-bold text-sky-400 hover:text-sky-300 px-1.5 py-0.5 rounded bg-sky-500/15"
+                        className="text-[9px] font-bold text-sky-400 hover:text-sky-300 px-1 py-0.5 rounded bg-sky-500/15"
                       >
-                        Teraz ({getRoundedCurrentTime(30)})
+                        Teraz
                       </button>
                     </div>
                     <input
                       type="time"
                       value={modalScheduleTime}
                       onChange={(e) => setModalScheduleTime(e.target.value)}
-                      className="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-700 text-white font-mono text-base font-bold focus:outline-none focus:border-sky-500"
+                      className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-white font-mono text-sm font-bold focus:outline-none focus:border-sky-500"
                     />
                     {/* Quick time helpers */}
-                    <div className="flex items-center gap-1.5 mt-2">
+                    <div className="flex items-center gap-1 mt-1.5">
                       <button
                         type="button"
                         onClick={() => setModalScheduleTime(getRoundedCurrentTime(30))}
-                        className="text-[10px] px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold"
+                        className="text-[9px] px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold"
                       >
                         Teraz
                       </button>
@@ -2224,7 +2338,7 @@ export default function PlannerBoard({
                           d.setHours(h, m + 30, 0, 0);
                           setModalScheduleTime(format(d, 'HH:mm'));
                         }}
-                        className="text-[10px] px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold"
+                        className="text-[9px] px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold"
                       >
                         +30m
                       </button>
@@ -2236,7 +2350,7 @@ export default function PlannerBoard({
                           d.setHours(h + 1, m, 0, 0);
                           setModalScheduleTime(format(d, 'HH:mm'));
                         }}
-                        className="text-[10px] px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold"
+                        className="text-[9px] px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold"
                       >
                         +1h
                       </button>
@@ -2244,41 +2358,41 @@ export default function PlannerBoard({
                   </div>
 
                   <div>
-                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">
-                      Czas Trwania (min)
+                    <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1">
+                      Czas (min)
                     </label>
                     <input
                       type="number"
                       value={modalDuration}
                       onChange={(e) => setModalDuration(parseInt(e.target.value, 10) || 30)}
                       step="5"
-                      className="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-700 text-white font-mono text-base font-bold focus:outline-none focus:border-sky-500"
+                      className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-white font-mono text-sm font-bold focus:outline-none focus:border-sky-500"
                     />
-                    <span className="text-[10px] text-slate-500 mt-1 block">
-                      Kategoria: {editingOrder.category?.name}
+                    <span className="text-[9px] text-slate-500 mt-1 block truncate">
+                      {editingOrder.category?.name}
                     </span>
                   </div>
                 </div>
 
                 <div>
-                  <label className="flex items-center gap-2 p-3 rounded-xl bg-slate-950 border border-slate-800 cursor-pointer">
+                  <label className="flex items-center gap-2 p-2 rounded-xl bg-slate-950 border border-slate-800 cursor-pointer">
                     <input
                       type="checkbox"
                       checked={modalOverCapacity}
                       onChange={(e) => setModalOverCapacity(e.target.checked)}
-                      className="w-4 h-4 rounded text-sky-500 focus:ring-0"
+                      className="w-3.5 h-3.5 rounded text-sky-500 focus:ring-0"
                     />
-                    <span className="text-xs text-slate-300 font-semibold">
-                      Zezwól na dodanie ponad limit przepustowości (Override)
+                    <span className="text-[11px] text-slate-300 font-medium">
+                      Zezwól na dodanie ponad limit (Override)
                     </span>
                   </label>
                 </div>
 
-                <div className="flex items-center gap-3 pt-3">
+                <div className="flex items-center gap-2.5 pt-2">
                   <button
                     type="button"
                     onClick={() => setEditingOrder(null)}
-                    className="flex-1 py-3.5 rounded-xl bg-slate-800 text-slate-300 font-bold text-xs"
+                    className="flex-1 py-2.5 rounded-xl bg-slate-800 text-slate-300 font-bold text-xs"
                   >
                     Anuluj
                   </button>
@@ -2304,7 +2418,7 @@ export default function PlannerBoard({
                       setEditingOrder(null);
                       fetchDayOrders();
                     }}
-                    className="flex-1 py-3.5 rounded-xl bg-sky-500 hover:bg-sky-400 text-white font-bold text-xs shadow-lg shadow-sky-500/25"
+                    className="flex-1 py-2.5 rounded-xl bg-sky-500 hover:bg-sky-400 text-white font-bold text-xs shadow-lg shadow-sky-500/25"
                   >
                     Zapisz Zmiany
                   </button>

@@ -119,6 +119,13 @@ export async function createOrder(input: CreateOrderInput) {
     }
 
     if (input.isPriority) {
+      const user = await getCurrentUser();
+      if (user && user.role !== 'WASHER' && user.role !== 'ADMIN') {
+        return { 
+          success: false, 
+          error: 'Brak uprawnień. Tylko stanowisko Myjni oraz Kierownik / Admin mogą zgłaszać i planować zlecenia w trybie Ekspres poza kolejką.' 
+        };
+      }
       if (!input.priorityAuthorizer?.trim()) {
         return { success: false, error: 'Dla zlecenia Ekspres wymagane jest wskazanie osoby decyzyjnej zatwierdzającej priorytet.' };
       }

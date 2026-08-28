@@ -96,7 +96,7 @@ export default function OrderFormAndList({
 
   const [contactPerson, setContactPerson] = useState(currentUser?.name || '');
   const [notes, setNotes] = useState('');
-  
+
   // Priority / Express state
   const [isPriority, setIsPriority] = useState(false);
   const [priorityAuthorizer, setPriorityAuthorizer] = useState('');
@@ -971,90 +971,105 @@ export default function OrderFormAndList({
               </div>
             </div>
 
-            {/* Express / Urgent Priority Mode ("Na już" / Wrzutka poza kolejką) */}
-            <div className={`p-4 rounded-2xl border transition-all ${
-              isPriority 
-                ? 'bg-gradient-to-br from-amber-950/40 via-red-950/20 to-slate-950 border-amber-500/80 shadow-lg shadow-amber-500/10' 
+            {/* Express / Urgent Priority Mode ("Na już" / Wrzutka poza kolejką) - Only for ADMIN / WASHER */}
+            {currentUser && (currentUser.role === 'ADMIN' || currentUser.role === 'WASHER') ? (
+              <div className={`p-4 rounded-2xl border transition-all ${isPriority
+                ? 'bg-gradient-to-br from-amber-950/40 via-red-950/20 to-slate-950 border-amber-500/80 shadow-lg shadow-amber-500/10'
                 : 'bg-slate-950 border-slate-800/80 hover:border-slate-700'
-            }`}>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2.5">
-                  <div className={`p-2 rounded-xl flex items-center justify-center transition-colors ${
-                    isPriority ? 'bg-amber-500 text-slate-950 shadow-md shadow-amber-500/30' : 'bg-slate-800 text-slate-400'
-                  }`}>
-                    <Zap className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <label 
-                      htmlFor="priorityToggle" 
-                      className="text-xs font-black uppercase tracking-wider text-white flex items-center gap-1.5 cursor-pointer"
-                    >
-                      <span>Priorytet Ekspres / Wydanie natychmiastowe</span>
-                      {isPriority && (
-                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 font-mono font-bold animate-pulse">
-                          WYMAGA AUDYTU
-                        </span>
-                      )}
-                    </label>
-                    <p className="text-[11px] text-slate-400 mt-0.5">
-                      Wrzutka poza standardową kolejką na polecenie Dyrekcji / Kierownika
-                    </p>
-                  </div>
-                </div>
-
-                <label className="relative inline-flex items-center cursor-pointer">
-                  <input
-                    id="priorityToggle"
-                    type="checkbox"
-                    checked={isPriority}
-                    onChange={(e) => setIsPriority(e.target.checked)}
-                    className="sr-only peer"
-                  />
-                  <div className="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-500"></div>
-                </label>
-              </div>
-
-              {isPriority && (
-                <div className="mt-4 pt-4 border-t border-amber-500/30 space-y-3.5 animate-fadeIn">
-                  <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-start gap-2.5 text-xs text-amber-200">
-                    <ShieldAlert className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
+                }`}>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2.5">
+                    <div className={`p-2 rounded-xl flex items-center justify-center transition-colors ${isPriority ? 'bg-amber-500 text-slate-950 shadow-md shadow-amber-500/30' : 'bg-slate-800 text-slate-400'
+                      }`}>
+                      <Zap className="w-5 h-5" />
+                    </div>
                     <div>
-                      <strong className="text-amber-300">Transparentność kolejki (Audit Log):</strong> Każda wrzutka ekspresowa jest rejestrowana w raporcie dla Dyrekcji i publicznie widoczna dla wszystkich działów salonu.
+                      <label
+                        htmlFor="priorityToggle"
+                        className="text-xs font-black uppercase tracking-wider text-white flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <span>Priorytet Ekspres / Wydanie natychmiastowe</span>
+                        {isPriority && (
+                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 font-mono font-bold animate-pulse">
+                            WYMAGA AUDYTU
+                          </span>
+                        )}
+                      </label>
+                      <p className="text-[11px] text-slate-400 mt-0.5">
+                        Wrzutka poza standardową kolejką na polecenie Dyrekcji / Kierownika
+                      </p>
                     </div>
                   </div>
 
-                  <div>
-                    <label className="block text-xs font-bold uppercase tracking-wider text-amber-300 mb-1.5 flex items-center justify-between">
-                      <span>Osoba Decyzyjna (Zatwierdzający) *</span>
-                      <span className="text-[10px] text-amber-400/80 font-normal">Kierownik / Dyrektor</span>
-                    </label>
+                  <label className="relative inline-flex items-center cursor-pointer">
                     <input
-                      type="text"
-                      required={isPriority}
-                      placeholder="np. Kierownik Serwisu Jan Kowalski / Dyrektor Salonu"
-                      value={priorityAuthorizer}
-                      onChange={(e) => setPriorityAuthorizer(e.target.value)}
-                      className="w-full px-4 py-2.5 rounded-xl bg-slate-900 border border-amber-500/50 text-white text-sm font-semibold placeholder:text-slate-600 focus:outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-500/20"
+                      id="priorityToggle"
+                      type="checkbox"
+                      checked={isPriority}
+                      onChange={(e) => setIsPriority(e.target.checked)}
+                      className="sr-only peer"
                     />
+                    <div className="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-500"></div>
+                  </label>
+                </div>
+
+                {isPriority && (
+                  <div className="mt-4 pt-4 border-t border-amber-500/30 space-y-3.5 animate-fadeIn">
+                    <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-start gap-2.5 text-xs text-amber-200">
+                      <ShieldAlert className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
+                      <div>
+                        <strong className="text-amber-300">Transparentność kolejki (Audit Log):</strong> Każda wrzutka ekspresowa jest rejestrowana w raporcie dla Dyrekcji i publicznie widoczna dla wszystkich działów salonu.
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold uppercase tracking-wider text-amber-300 mb-1.5 flex items-center justify-between">
+                        <span>Osoba Decyzyjna (Zatwierdzający) *</span>
+                        <span className="text-[10px] text-amber-400/80 font-normal">Kierownik / Dyrektor</span>
+                      </label>
+                      <input
+                        type="text"
+                        required={isPriority}
+                        placeholder="np. Kierownik Serwisu Jan Kowalski / Dyrektor Salonu"
+                        value={priorityAuthorizer}
+                        onChange={(e) => setPriorityAuthorizer(e.target.value)}
+                        className="w-full px-4 py-2.5 rounded-xl bg-slate-900 border border-amber-500/50 text-white text-sm font-semibold placeholder:text-slate-600 focus:outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-500/20"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold uppercase tracking-wider text-amber-300 mb-1.5 flex items-center justify-between">
+                        <span>Uzasadnienie Pierwszeństwa / Wrzutki *</span>
+                        <span className="text-[10px] text-amber-400/80 font-normal">Dlaczego zepchnięto inne auta</span>
+                      </label>
+                      <input
+                        type="text"
+                        required={isPriority}
+                        placeholder="np. Klient czeka w salonie na odbiór / pilny wyjazd klienta pociągiem"
+                        value={priorityReason}
+                        onChange={(e) => setPriorityReason(e.target.value)}
+                        className="w-full px-4 py-2.5 rounded-xl bg-slate-900 border border-amber-500/50 text-white text-sm placeholder:text-slate-600 focus:outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-500/20"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="p-3.5 rounded-2xl bg-slate-950/60 border border-slate-800/80 flex items-start gap-3 opacity-75">
+                <div className="p-2 rounded-xl bg-slate-900 text-slate-500 flex items-center justify-center flex-shrink-0">
+                  <Lock className="w-4 h-4" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-bold text-slate-300">Priorytet Ekspres / Wrzutka poza kolejką</span>
+                    <span className="text-[9px] font-mono px-1.5 py-0.2 rounded bg-slate-800 text-slate-400 border border-slate-700">
+                      Tylko Kierownik / Myjnia
+                    </span>
                   </div>
 
-                  <div>
-                    <label className="block text-xs font-bold uppercase tracking-wider text-amber-300 mb-1.5 flex items-center justify-between">
-                      <span>Uzasadnienie Pierwszeństwa / Wrzutki *</span>
-                      <span className="text-[10px] text-amber-400/80 font-normal">Dlaczego zepchnięto inne auta</span>
-                    </label>
-                    <input
-                      type="text"
-                      required={isPriority}
-                      placeholder="np. Klient czeka w salonie na odbiór / pilny wyjazd klienta pociągiem"
-                      value={priorityReason}
-                      onChange={(e) => setPriorityReason(e.target.value)}
-                      className="w-full px-4 py-2.5 rounded-xl bg-slate-900 border border-amber-500/50 text-white text-sm placeholder:text-slate-600 focus:outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-500/20"
-                    />
-                  </div>
                 </div>
-              )}
-            </div>
+              </div>
+            )}
 
             {/* Notes & Suggestions */}
             <div>
@@ -1210,15 +1225,14 @@ export default function OrderFormAndList({
                 return (
                   <div
                     key={order.id}
-                    className={`rounded-2xl p-5 border transition-all relative overflow-hidden ${
-                      order.isPriority
-                        ? 'bg-gradient-to-r from-red-950/70 via-amber-950/50 to-slate-900 border-amber-500 shadow-xl shadow-amber-500/15 ring-1 ring-amber-500/30'
-                        : isReady
+                    className={`rounded-2xl p-5 border transition-all relative overflow-hidden ${order.isPriority
+                      ? 'bg-gradient-to-r from-red-950/70 via-amber-950/50 to-slate-900 border-amber-500 shadow-xl shadow-amber-500/15 ring-1 ring-amber-500/30'
+                      : isReady
                         ? 'bg-gradient-to-r from-emerald-950/80 to-slate-900 border-emerald-500/60 shadow-lg shadow-emerald-500/10'
                         : isInProgress
-                        ? 'bg-gradient-to-r from-amber-950/60 to-slate-900 border-amber-500/50 shadow-lg shadow-amber-500/10'
-                        : 'bg-slate-900 border-slate-800 hover:border-slate-700'
-                    }`}
+                          ? 'bg-gradient-to-r from-amber-950/60 to-slate-900 border-amber-500/50 shadow-lg shadow-amber-500/10'
+                          : 'bg-slate-900 border-slate-800 hover:border-slate-700'
+                      }`}
                   >
                     {/* Top Row: Plate + Badges */}
                     <div className="flex items-start justify-between gap-2 mb-3">
