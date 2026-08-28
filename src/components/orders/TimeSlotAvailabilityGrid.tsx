@@ -16,6 +16,13 @@ export interface TimeSlotAvailabilityGridProps {
   maxSimultaneousCars?: number; // e.g. 3
   deliveryCarWeight?: number; // e.g. 1.5
   onSwitchToTomorrow?: () => void;
+  onSlotStatusChange?: (status: {
+    isOverbooked: boolean;
+    availableSlots: number;
+    usedCapacity: number;
+    totalCapacity: number;
+    suggestedAlternativeHour: string | null;
+  }) => void;
 }
 
 interface SlotInfo {
@@ -42,6 +49,7 @@ export default function TimeSlotAvailabilityGrid({
   maxSimultaneousCars = 3,
   deliveryCarWeight = 1.5,
   onSwitchToTomorrow,
+  onSlotStatusChange,
 }: TimeSlotAvailabilityGridProps) {
   const todayStr = format(new Date(), 'yyyy-MM-dd');
   const isToday = targetReadyDate === todayStr;
@@ -82,18 +90,19 @@ export default function TimeSlotAvailabilityGrid({
         if (h === workEndHour && m > 0) continue;
 
         const timeStr = `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
-        const slotDate = new Date(`${targetReadyDate}T${timeStr}:00`);
+        const slotReadyDate = new Date(`${targetReadyDate}T${timeStr}:00`);
 
         // Slot jest niedostępny, jeśli gotowość wymagałaby startu mycia przed otwarciem myjni (lub przed obecną chwilą dzisiaj)
-        const isPastOrTooEarly = slotDate < minFeasibleDate;
+        const isPastOrTooEarly = slotReadyDate < minFeasibleDate;
         const isClosed = h >= workEndHour && m > 0;
 
-        // Obliczenie zajętości w tym oknie czasowym
+        // Obliczenie zajętości w tym oknie czasowym gotowości
+        // Dla gotowości o timeStr (np. 08:30) praca odbywa się w oknie [slotStartMs, slotReadyMs] (np. 08:00 - 08:30)
         let usedCapacity = 0;
         let activeOrdersCount = 0;
 
-        const slotTimeMs = slotDate.getTime();
-        const slotEndMs = slotTimeMs + 30 * 60000;
+        const slotReadyMs = slotReadyDate.getTime();
+        const slotStartMs = slotReadyMs - serviceDurationMin * 60000;
 
         orders.forEach((o) => {
           if (o.status === 'COMPLETED' || o.status === 'CANCELLED') return;
@@ -115,7 +124,8 @@ export default function TimeSlotAvailabilityGrid({
           }
 
           if (startMs !== null && endMs !== null) {
-            if (startMs < slotEndMs && endMs > slotTimeMs) {
+            // Sprawdzenie nachodzenia przedziałów [slotStartMs, slotReadyMs] oraz [startMs, endMs]
+            if (startMs < slotReadyMs && endMs > slotStartMs) {
               usedCapacity += weight;
               activeOrdersCount++;
             }
@@ -147,6 +157,7 @@ export default function TimeSlotAvailabilityGrid({
     targetReadyDate,
     isToday,
     minFeasibleDate,
+    serviceDurationMin,
     orders,
     deliveryCarWeight,
     maxSimultaneousCars,
@@ -156,6 +167,26 @@ export default function TimeSlotAvailabilityGrid({
   // Podział na sloty przeszłe i przyszłe
   const pastSlots = useMemo(() => allSlots.filter((s) => s.isPastOrTooEarly), [allSlots]);
   const futureSlots = useMemo(() => allSlots.filter((s) => !s.isPastOrTooEarly), [allSlots]);
+
+  // Powiadomienie formularza nadrzędnego o statusie wybranego slotu
+  useEffect(() => {
+    if (!onSlotStatusChange) return;
+    const current = allSlots.find((s) => s.timeStr === selectedHour);
+    if (current) {
+      const isOverbooked = !current.isPastOrTooEarly && current.availableSlots <= 0;
+      const nextFree = futureSlots.find(
+        (s) => !s.isClosed && s.availableSlots > 0 && s.timeStr > selectedHour
+      );
+      const anyFree = futureSlots.find((s) => !s.isClosed && s.availableSlots > 0);
+      onSlotStatusChange({
+        isOverbooked,
+        availableSlots: current.availableSlots,
+        usedCapacity: current.usedCapacity,
+        totalCapacity: current.totalCapacity,
+        suggestedAlternativeHour: nextFree ? nextFree.timeStr : anyFree ? anyFree.timeStr : null,
+      });
+    }
+  }, [allSlots, selectedHour, onSlotStatusChange, futureSlots]);
 
   // Sloty do wyświetlenia (jeśli showPastSlots jest false, pokazujemy TYLKO przyszłe)
   const visibleSlots = showPastSlots ? allSlots : futureSlots;

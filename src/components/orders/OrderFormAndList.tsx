@@ -102,6 +102,15 @@ export default function OrderFormAndList({
   const [priorityAuthorizer, setPriorityAuthorizer] = useState('');
   const [priorityReason, setPriorityReason] = useState('');
 
+  // Selected slot capacity status (from TimeSlotAvailabilityGrid)
+  const [selectedSlotStatus, setSelectedSlotStatus] = useState<{
+    isOverbooked: boolean;
+    availableSlots: number;
+    usedCapacity: number;
+    totalCapacity: number;
+    suggestedAlternativeHour: string | null;
+  } | null>(null);
+
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formSuccessMsg, setFormSuccessMsg] = useState('');
   const [formErrorMsg, setFormErrorMsg] = useState('');
@@ -351,6 +360,11 @@ export default function OrderFormAndList({
         setFormErrorMsg('Dla zlecenia w trybie Ekspres wymagane jest podanie uzasadnienia pierwszeństwa (np. Klient czeka w salonie).');
         return;
       }
+    } else if (settings.ALLOW_OVER_CAPACITY === 'false' && selectedSlotStatus?.isOverbooked) {
+      setFormErrorMsg(
+        `Wybrana godzina (${targetHour}) jest już całkowicie zapełniona (${selectedSlotStatus.usedCapacity}/${selectedSlotStatus.totalCapacity} aut). Wybierz inny wolny termin (zielony slot) lub skonsultuj z Kierownikiem/Myjnią.`
+      );
+      return;
     }
 
     setIsSubmitting(true);
@@ -913,6 +927,41 @@ export default function OrderFormAndList({
                   </span>
                 </div>
 
+                {/* Overbooked / Full Capacity Warning Banner */}
+                {selectedSlotStatus?.isOverbooked && !isPriority && (
+                  <div className="mb-3 p-3.5 rounded-2xl bg-gradient-to-r from-rose-950/90 via-amber-950/70 to-slate-900 border-2 border-rose-500/80 text-rose-200 text-xs space-y-2 shadow-xl shadow-rose-950/30 animate-fadeIn">
+                    <div className="flex items-start gap-2.5">
+                      <AlertTriangle className="w-5 h-5 text-rose-400 flex-shrink-0 mt-0.5 animate-pulse" />
+                      <div>
+                        <div className="text-xs sm:text-sm font-black text-rose-300 flex items-center gap-1.5 flex-wrap">
+                          <span>Uwaga: Godzina {targetHour} jest już w 100% zapełniona</span>
+                          <span className="px-1.5 py-0.2 rounded bg-rose-500/30 text-rose-300 border border-rose-500/40 font-mono text-[10px]">
+                            {selectedSlotStatus.usedCapacity}/{selectedSlotStatus.totalCapacity} aut
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-rose-200/90 font-normal mt-1 leading-relaxed">
+                          Przepustowość myjni dla tego okna gotowości została wyczerpana. Zlecenie zostanie zarejestrowane, ale trafi do kolejki jako oczekujące i myjnia może zrealizować je z opóźnieniem lub przesunąć termin.
+                        </p>
+                      </div>
+                    </div>
+                    {selectedSlotStatus.suggestedAlternativeHour && (
+                      <div className="flex items-center justify-between pt-2 border-t border-rose-500/30 text-[11px] flex-wrap gap-2">
+                        <span className="text-amber-300 font-semibold flex items-center gap-1">
+                          <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                          Sugerowany wolny termin: <strong className="text-white font-mono">{selectedSlotStatus.suggestedAlternativeHour}</strong>
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setTargetHour(selectedSlotStatus.suggestedAlternativeHour!)}
+                          className="px-2.5 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-[10px] flex items-center gap-1 shadow transition-colors"
+                        >
+                          Zmień na {selectedSlotStatus.suggestedAlternativeHour}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {/* Forward looking quick chips */}
                 <div className="flex flex-wrap gap-1.5 mb-3">
                   <button
@@ -967,6 +1016,7 @@ export default function OrderFormAndList({
                     setTargetReadyDate(tomorrowStr);
                     setTargetHour('09:00');
                   }}
+                  onSlotStatusChange={setSelectedSlotStatus}
                 />
               </div>
             </div>
