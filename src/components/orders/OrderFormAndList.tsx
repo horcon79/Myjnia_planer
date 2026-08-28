@@ -132,7 +132,7 @@ export default function OrderFormAndList({
   const [targetDateOrders, setTargetDateOrders] = useState<any[]>([]);
   const [selectedDate, setSelectedDate] = useState(targetReadyDate);
   const [isLoadingList, setIsLoadingList] = useState(true);
-  const [filterDept, setFilterDept] = useState<string>(isDeptLocked ? defaultDeptId : 'ALL');
+  const [filterDept, setFilterDept] = useState<string>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
   const [showCompleted, setShowCompleted] = useState(false); // Hide completed by default!
 
@@ -480,32 +480,32 @@ export default function OrderFormAndList({
   };
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-4">
 
-      {/* Top Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-900/80 p-5 rounded-2xl border border-slate-800">
+      {/* Top Header (Slim & Compact) */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 bg-slate-900/80 px-4 py-3 rounded-xl border border-slate-800 shadow-sm">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-extrabold text-white flex items-center gap-3">
-            <Plus className="w-8 h-8 text-sky-400 bg-sky-500/10 p-1.5 rounded-xl" />
+          <h1 className="text-base sm:text-lg font-bold text-white flex items-center gap-2">
+            <Plus className="w-5 h-5 text-sky-400 bg-sky-500/10 p-1 rounded-lg" />
             Zgłaszanie Mycia Pojazdu
           </h1>
-          <p className="text-xs sm:text-sm text-slate-400 mt-1">
-            Inteligentne planowanie z wyprzedzeniem i podgląd obłożenia myjni
+          <p className="text-[11px] text-slate-400 mt-0.5">
+            Planowanie z wyprzedzeniem i podgląd obłożenia myjni
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-1.5 bg-slate-800 p-1 rounded-xl border border-slate-700">
+        <div className="flex items-center gap-2 self-start sm:self-auto">
+          <div className="flex items-center gap-1 bg-slate-800/90 p-0.5 rounded-lg border border-slate-700">
             <button
               onClick={() => setSelectedDate(todayStr)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${selectedDate === todayStr ? 'bg-sky-500 text-white shadow' : 'text-slate-400 hover:text-white'
+              className={`px-2.5 py-1 rounded-md text-xs font-bold transition-colors ${selectedDate === todayStr ? 'bg-sky-500 text-slate-950 shadow-sm' : 'text-slate-400 hover:text-white'
                 }`}
             >
               Dziś
             </button>
             <button
               onClick={() => setSelectedDate(tomorrowStr)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${selectedDate === tomorrowStr ? 'bg-sky-500 text-white shadow' : 'text-slate-400 hover:text-white'
+              className={`px-2.5 py-1 rounded-md text-xs font-bold transition-colors ${selectedDate === tomorrowStr ? 'bg-sky-500 text-slate-950 shadow-sm' : 'text-slate-400 hover:text-white'
                 }`}
             >
               Jutro
@@ -514,16 +514,16 @@ export default function OrderFormAndList({
               type="date"
               value={selectedDate}
               onChange={(e) => setSelectedDate(e.target.value)}
-              className="bg-slate-950 text-white text-xs font-bold rounded-lg px-2.5 py-1.5 border border-slate-700 focus:outline-none focus:border-sky-500"
+              className="bg-slate-950 text-white text-xs font-bold rounded-md px-2 py-1 border border-slate-700 focus:outline-none focus:border-sky-500"
             />
           </div>
 
           <button
             onClick={loadOrders}
-            className="p-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors"
+            className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors"
             title="Odśwież listę"
           >
-            <RefreshCw className="w-5 h-5" />
+            <RefreshCw className="w-4 h-4" />
           </button>
         </div>
       </div>
@@ -1197,22 +1197,18 @@ export default function OrderFormAndList({
             <div className="flex items-center gap-2 w-full sm:w-auto">
               <Filter className="w-3.5 h-3.5 text-slate-400" />
 
-              {!isDeptLocked ? (
-                <select
-                  value={filterDept}
-                  onChange={(e) => setFilterDept(e.target.value)}
-                  className="bg-slate-800 border border-slate-700 text-white text-xs font-bold rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-sky-500"
-                >
-                  <option value="ALL">Wszystkie działy</option>
-                  {departments.map((d) => (
-                    <option key={d.id} value={d.id}>{d.name}</option>
-                  ))}
-                </select>
-              ) : (
-                <span className="text-xs font-bold text-sky-400 bg-slate-800 px-2.5 py-1 rounded-lg border border-slate-700">
-                  {userDeptObj?.name}
-                </span>
-              )}
+              <select
+                value={filterDept}
+                onChange={(e) => setFilterDept(e.target.value)}
+                className="bg-slate-800 border border-slate-700 text-white text-xs font-bold rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-sky-500 cursor-pointer"
+              >
+                <option value="ALL">Wszystkie działy</option>
+                {departments.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.name} {userDeptObj?.id === d.id ? '(Twój dział)' : ''}
+                  </option>
+                ))}
+              </select>
 
               {/* Toggle to show/hide completed orders */}
               {completedCount > 0 && (
