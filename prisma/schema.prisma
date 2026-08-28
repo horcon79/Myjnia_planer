@@ -78,6 +78,9 @@ model WashOrder {
   status              String       @default("PLANNED") // "PLANNED" (Zaplanowane / W kolejce) | "IN_PROGRESS" (W trakcie mycia) | "READY" (Gotowe do odbioru) | "COMPLETED" (Wydane / Odebrane) | "CANCELLED"
   isOverCapacity      Boolean      @default(false) // Czy dodano jako override ponad limit
   enteredByWash       Boolean      @default(false) // Czy auto wprowadził sam myjkowy (bez wcześniejszego planowania przez dział)
+  isPriority          Boolean      @default(false) // Zlecenie pilne / Ekspres ("Na już")
+  priorityAuthorizer  String?      // Osoba zatwierdzająca priorytet (Kierownik / Dyrektor)
+  priorityReason      String?      // Uzasadnienie pierwszeństwa przed innymi autami
   dmsOrderId          Int?         // us_Zlecenie.ID z DMS (zlecenie_id w pliku JSON)
   dmsOrderNumber      String?      // numer_zlecenia z DMS (referencja zewnętrzna)
   dmsVin              String?      // VIN z DMS (nr_nadwozia w pliku JSON)

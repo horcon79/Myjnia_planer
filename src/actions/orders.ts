@@ -24,6 +24,9 @@ export interface CreateOrderInput {
   scheduledStartTime?: string; // Optional direct slot
   assignedEmployeeId?: string;
   enteredByWash?: boolean; // Wprowadzone ręcznie przez myjnię (bez planowania działu)
+  isPriority?: boolean; // Tryb Ekspres / Na już
+  priorityAuthorizer?: string | null; // Osoba decyzyjna
+  priorityReason?: string | null; // Uzasadnienie pierwszeństwa
   dmsOrderId?: number | null; // Referencja zlecenia DMS (zlecenie_id)
   dmsOrderNumber?: string | null; // Numer zlecenia DMS (numer_zlecenia)
   dmsVin?: string | null; // VIN z DMS
@@ -63,6 +66,7 @@ export async function getOrdersForDate(dateStr: string) {
         assignedEmployee: true,
       },
       orderBy: [
+        { isPriority: 'desc' }, // Priorytetowe na górze
         { scheduledStartTime: 'asc' },
         { targetReadyTime: 'asc' },
       ],
@@ -91,7 +95,10 @@ export async function getOrdersForDate(dateStr: string) {
         category: true,
         assignedEmployee: true,
       },
-      orderBy: { targetReadyTime: 'asc' },
+      orderBy: [
+        { isPriority: 'desc' },
+        { targetReadyTime: 'asc' },
+      ],
     });
 
     return { success: true, orders, pastUnfinishedOrders };
@@ -109,6 +116,15 @@ export async function createOrder(input: CreateOrderInput) {
 
     if (!category) {
       return { success: false, error: 'Nie znaleziono kategorii mycia.' };
+    }
+
+    if (input.isPriority) {
+      if (!input.priorityAuthorizer?.trim()) {
+        return { success: false, error: 'Dla zlecenia Ekspres wymagane jest wskazanie osoby decyzyjnej zatwierdzającej priorytet.' };
+      }
+      if (!input.priorityReason?.trim()) {
+        return { success: false, error: 'Dla zlecenia Ekspres wymagane jest podanie uzasadnienia pierwszeństwa.' };
+      }
     }
 
     const durationMin = category.defaultDurationMin;
@@ -140,8 +156,11 @@ export async function createOrder(input: CreateOrderInput) {
         scheduledEndTime: scheduledEnd,
         durationMin,
         assignedEmployeeId: input.assignedEmployeeId || null,
-        status: scheduledStart ? 'PLANNED' : 'PLANNED',
+        status: 'PLANNED',
         enteredByWash: input.enteredByWash ?? false,
+        isPriority: input.isPriority ?? false,
+        priorityAuthorizer: input.isPriority ? input.priorityAuthorizer?.trim() || null : null,
+        priorityReason: input.isPriority ? input.priorityReason?.trim() || null : null,
         dmsOrderId: input.dmsOrderId ?? null,
         dmsOrderNumber: input.dmsOrderNumber?.trim() || null,
         dmsVin: input.dmsVin?.trim() || null,

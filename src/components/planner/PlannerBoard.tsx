@@ -39,7 +39,8 @@ import {
   FileText,
   UserPlus,
   Eye,
-  Lock
+  Lock,
+  Zap
 } from 'lucide-react';
 import { format, addDays, subDays } from 'date-fns';
 import { pl } from 'date-fns/locale';
@@ -1427,7 +1428,8 @@ export default function PlannerBoard({
                         {isTight ? (
                           <>
                             <div className="flex items-center gap-1">
-                              <span className="font-mono font-black text-[10px] leading-tight bg-black/40 px-1 py-0.5 rounded border border-white/10 truncate max-w-[92px]">
+                              <span className="font-mono font-black text-[10px] leading-tight bg-black/40 px-1 py-0.5 rounded border border-white/10 truncate max-w-[92px] flex items-center gap-1">
+                                {ord.isPriority && <span className="text-amber-400 font-bold" title={`⚡ Ekspres: ${ord.priorityAuthorizer || ''} - ${ord.priorityReason || ''}`}>⚡</span>}
                                 {ord.licensePlate}
                               </span>
                               <span
@@ -1507,8 +1509,9 @@ export default function PlannerBoard({
                                 <span>ZALEGŁA</span>
                               </div>
                             )}
-                            <div className="flex items-center gap-1 mb-0.5">
-                              <span className="font-mono font-black text-[11px] tracking-wide bg-black/40 px-1.5 py-0.5 rounded border border-white/10 truncate">
+                            <div className="flex items-center gap-1 mb-0.5 flex-wrap">
+                              <span className="font-mono font-black text-[11px] tracking-wide bg-black/40 px-1.5 py-0.5 rounded border border-white/10 truncate flex items-center gap-1">
+                                {ord.isPriority && <span className="text-amber-400 font-bold">⚡</span>}
                                 {ord.licensePlate}
                               </span>
                               <span
@@ -1517,6 +1520,14 @@ export default function PlannerBoard({
                               >
                                 {ord.department?.code}
                               </span>
+                              {ord.isPriority && (
+                                <span
+                                  className="text-[7px] font-black px-1 py-0.2 rounded bg-amber-500 text-slate-950 uppercase flex items-center gap-0.5 flex-shrink-0"
+                                  title={`⚡ Ekspres: ${ord.priorityAuthorizer || ''} - ${ord.priorityReason || ''}`}
+                                >
+                                  <Zap className="w-2 h-2 fill-current" /> EKSPRES
+                                </span>
+                              )}
                               {ord.enteredByWash && (
                                 <span
                                   className="text-violet-300 flex-shrink-0"
@@ -1602,7 +1613,8 @@ export default function PlannerBoard({
                         <div className="flex items-start justify-between gap-1 mb-1.5">
                           <div>
                             <div className="flex items-center gap-1.5 flex-wrap">
-                              <span className="font-mono font-black text-sm sm:text-base tracking-wider bg-black/40 px-2 py-0.5 rounded border border-white/10">
+                              <span className="font-mono font-black text-sm sm:text-base tracking-wider bg-black/40 px-2 py-0.5 rounded border border-white/10 flex items-center gap-1">
+                                {ord.isPriority && <span className="text-amber-400">⚡</span>}
                                 {ord.licensePlate}
                               </span>
                               <span 
@@ -1617,7 +1629,13 @@ export default function PlannerBoard({
                             </p>
                           </div>
 
-                          <div className="flex items-center gap-1">
+                          <div className="flex items-center gap-1 flex-wrap justify-end">
+                            {ord.isPriority && (
+                              <span className="text-[8px] font-black px-1.5 py-0.5 rounded bg-gradient-to-r from-amber-500 to-red-500 text-slate-950 uppercase flex items-center gap-0.5 shadow animate-pulse" title={`⚡ Zlecenie Ekspresowe: ${ord.priorityAuthorizer || ''} - ${ord.priorityReason || ''}`}>
+                                <Zap className="w-2.5 h-2.5 fill-current" />
+                                EKSPRES
+                              </span>
+                            )}
                             {ord.enteredByWash && (
                               <span className="text-[8px] font-black px-1.5 py-0.5 rounded bg-violet-500 text-white uppercase flex items-center gap-0.5 shadow" title="Auto wprowadzone ręcznie przez myjnię (dział nie zaplanował mycia)">
                                 <UserPlus className="w-2.5 h-2.5" />
@@ -1639,6 +1657,19 @@ export default function PlannerBoard({
                             )}
                           </div>
                         </div>
+
+                        {/* Priority Express audit callout */}
+                        {ord.isPriority && (
+                          <div className="mb-1.5 px-2 py-1 rounded-lg bg-amber-950/70 border border-amber-500/40 text-[10px] text-amber-200">
+                            <span className="text-amber-300 font-bold">⚡ Zatwierdził: </span>
+                            <span className="font-semibold text-white">{ord.priorityAuthorizer || 'Brak'}</span>
+                            {ord.priorityReason && (
+                              <div className="text-[9px] text-amber-100/90 italic truncate">
+                                Powód: {ord.priorityReason}
+                              </div>
+                            )}
+                          </div>
+                        )}
 
                         {/* Service and Deadline */}
                         <div className="text-[11px] space-y-0.5 mb-2">

@@ -15,7 +15,9 @@ import {
   Filter,
   Check,
   AlertTriangle,
-  FileText
+  FileText,
+  Zap,
+  ShieldAlert
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { pl } from 'date-fns/locale';
@@ -72,6 +74,7 @@ export default function SalonDashboard({
   const inProgressOrders = filteredOrders.filter(o => o.status === 'IN_PROGRESS');
   const plannedOrders = filteredOrders.filter(o => o.status === 'PLANNED');
   const completedOrders = filteredOrders.filter(o => o.status === 'COMPLETED');
+  const activeExpressOrders = filteredOrders.filter(o => o.isPriority && o.status !== 'COMPLETED');
 
   return (
     <div className="space-y-6 flex-1 flex flex-col">
@@ -122,6 +125,65 @@ export default function SalonDashboard({
         </div>
       </div>
 
+      {/* Express / Urgent Orders Transparency Banner (Audit Log for all departments) */}
+      {activeExpressOrders.length > 0 && (
+        <div className="bg-gradient-to-r from-red-950/80 via-amber-950/60 to-slate-900 border-2 border-amber-500/80 rounded-3xl p-5 shadow-2xl space-y-3">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div className="flex items-center gap-2.5">
+              <div className="p-2 rounded-xl bg-amber-500 text-slate-950 font-black shadow animate-pulse">
+                <Zap className="w-5 h-5 fill-current" />
+              </div>
+              <div>
+                <h3 className="text-sm font-black text-amber-300 uppercase tracking-wider flex items-center gap-2">
+                  <span>Aktywne Wrzutki Ekspresowe ({activeExpressOrders.length})</span>
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                    TRANSPARENTNOŚĆ AUDYTOWA
+                  </span>
+                </h3>
+                <p className="text-xs text-amber-200/80">
+                  Poniższe pojazdy zostały wprowadzone z priorytetem ekspresowym i wyprzedzają standardową kolejkę.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 pt-1">
+            {activeExpressOrders.map((ord) => (
+              <div
+                key={`banner-${ord.id}`}
+                className="bg-slate-950/80 border border-amber-500/50 rounded-2xl p-3.5 text-xs text-slate-300 space-y-2 shadow"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="font-mono font-black text-sm text-white px-2.5 py-1 rounded-lg bg-black border border-amber-500/40">
+                    {ord.licensePlate}
+                  </span>
+                  <span
+                    className="text-[10px] font-black px-2 py-0.5 rounded text-white"
+                    style={{ backgroundColor: ord.department?.color || '#3b82f6' }}
+                  >
+                    {ord.department?.name}
+                  </span>
+                </div>
+                <div className="text-[11px] space-y-1">
+                  <div>
+                    <span className="text-slate-400">Zatwierdził: </span>
+                    <strong className="text-amber-300">{ord.priorityAuthorizer || 'Brak danych'}</strong>
+                  </div>
+                  <div>
+                    <span className="text-slate-400">Powód wrzutki: </span>
+                    <span className="text-white italic">{ord.priorityReason || 'Wydanie natychmiastowe'}</span>
+                  </div>
+                </div>
+                <div className="pt-1.5 border-t border-slate-800 flex items-center justify-between text-[10px] text-slate-400">
+                  <span>Status: <strong className="text-amber-400">{ord.status === 'IN_PROGRESS' ? 'W trakcie mycia' : ord.status === 'READY' ? 'Gotowe' : 'W kolejce'}</strong></span>
+                  <span>Cel: <strong className="text-white">{format(new Date(ord.targetReadyTime), 'HH:mm')}</strong></span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* 3 Main Status Columns */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 flex-1 items-start">
         
@@ -150,13 +212,23 @@ export default function SalonDashboard({
               {readyOrders.map((ord) => (
                 <div
                   key={ord.id}
-                  className="bg-gradient-to-br from-emerald-950/70 to-slate-950 border-2 border-emerald-500 rounded-2xl p-4 shadow-xl pulse-ready relative"
+                  className={`border-2 rounded-2xl p-4 shadow-xl pulse-ready relative ${
+                    ord.isPriority
+                      ? 'bg-gradient-to-br from-amber-950/70 via-emerald-950/50 to-slate-950 border-amber-500 ring-2 ring-amber-500/30'
+                      : 'bg-gradient-to-br from-emerald-950/70 to-slate-950 border-emerald-500'
+                  }`}
                 >
                   <div className="flex items-center justify-between mb-2">
-                    <span className="font-mono font-black text-xl text-white tracking-wider bg-black/60 px-3 py-1 rounded-xl border border-emerald-500/30">
+                    <span className="font-mono font-black text-xl text-white tracking-wider bg-black/60 px-3 py-1 rounded-xl border border-emerald-500/30 flex items-center gap-1.5">
+                      {ord.isPriority && <span className="text-amber-400">⚡</span>}
                       {ord.licensePlate}
                     </span>
                     <div className="flex items-center gap-1.5">
+                      {ord.isPriority && (
+                        <span className="text-[9px] font-black px-1.5 py-0.5 rounded bg-amber-500 text-slate-950 uppercase flex items-center gap-0.5">
+                          <Zap className="w-2.5 h-2.5 fill-current" /> Ekspres
+                        </span>
+                      )}
                       {ord.enteredByWash && (
                         <span className="text-[9px] font-black px-1.5 py-0.5 rounded bg-violet-500 text-white uppercase" title="Wprowadzone ręcznie przez myjnię (bez planowania działu)">
                           Wpis myjni
@@ -177,6 +249,19 @@ export default function SalonDashboard({
                   <p className="text-xs text-emerald-300 font-medium mb-2">
                     {ord.category?.name}
                   </p>
+
+                  {/* Priority audit info */}
+                  {ord.isPriority && (
+                    <div className="mb-2 px-2.5 py-1.5 rounded-lg bg-amber-950/70 border border-amber-500/40 text-[11px] text-amber-200">
+                      <span className="text-amber-400 font-semibold">Zatwierdził: </span>
+                      <strong className="text-white">{ord.priorityAuthorizer || 'Brak'}</strong>
+                      {ord.priorityReason && (
+                        <div className="text-[10px] text-amber-200/80 italic mt-0.5">
+                          {ord.priorityReason}
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   {ord.notes && (
                     <div className="mb-2 px-2.5 py-1.5 rounded-lg bg-sky-950/60 border border-sky-500/30 text-[11px] text-sky-200 flex items-start gap-1.5">
@@ -222,13 +307,23 @@ export default function SalonDashboard({
               {inProgressOrders.map((ord) => (
                 <div
                   key={ord.id}
-                  className="bg-gradient-to-br from-amber-950/60 to-slate-950 border border-amber-500/60 rounded-2xl p-4 shadow-xl pulse-in-progress"
+                  className={`border rounded-2xl p-4 shadow-xl pulse-in-progress ${
+                    ord.isPriority
+                      ? 'bg-gradient-to-br from-red-950/70 via-amber-950/60 to-slate-950 border-amber-500 ring-2 ring-amber-500/30'
+                      : 'bg-gradient-to-br from-amber-950/60 to-slate-950 border-amber-500/60'
+                  }`}
                 >
                   <div className="flex items-center justify-between mb-2">
-                    <span className="font-mono font-black text-lg text-white tracking-wider bg-black/60 px-2.5 py-1 rounded-xl border border-amber-500/30">
+                    <span className="font-mono font-black text-lg text-white tracking-wider bg-black/60 px-2.5 py-1 rounded-xl border border-amber-500/30 flex items-center gap-1.5">
+                      {ord.isPriority && <span className="text-amber-400">⚡</span>}
                       {ord.licensePlate}
                     </span>
                     <div className="flex items-center gap-1.5">
+                      {ord.isPriority && (
+                        <span className="text-[9px] font-black px-1.5 py-0.5 rounded bg-gradient-to-r from-amber-500 to-red-500 text-slate-950 uppercase flex items-center gap-0.5 shadow">
+                          <Zap className="w-2.5 h-2.5 fill-current" /> Ekspres
+                        </span>
+                      )}
                       {ord.enteredByWash && (
                         <span className="text-[9px] font-black px-1.5 py-0.5 rounded bg-violet-500 text-white uppercase" title="Wprowadzone ręcznie przez myjnię (bez planowania działu)">
                           Wpis myjni
@@ -242,6 +337,19 @@ export default function SalonDashboard({
                       </span>
                     </div>
                   </div>
+
+                  {/* Priority audit info */}
+                  {ord.isPriority && (
+                    <div className="mb-2 px-2.5 py-1.5 rounded-lg bg-amber-950/70 border border-amber-500/40 text-[11px] text-amber-200">
+                      <span className="text-amber-400 font-semibold">Zatwierdził: </span>
+                      <strong className="text-white">{ord.priorityAuthorizer || 'Brak'}</strong>
+                      {ord.priorityReason && (
+                        <div className="text-[10px] text-amber-200/80 italic mt-0.5">
+                          Powód: {ord.priorityReason}
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   {/* Delay Warning Notification on TV Dashboard */}
                   {ord.scheduledStartTime && 
@@ -303,13 +411,23 @@ export default function SalonDashboard({
               {plannedOrders.map((ord) => (
                 <div
                   key={ord.id}
-                  className="bg-slate-950 border border-slate-800 rounded-2xl p-4 hover:border-slate-700 transition-colors"
+                  className={`border rounded-2xl p-4 transition-colors ${
+                    ord.isPriority
+                      ? 'bg-gradient-to-br from-red-950/40 via-amber-950/30 to-slate-950 border-amber-500/80 ring-1 ring-amber-500/40'
+                      : 'bg-slate-950 border-slate-800 hover:border-slate-700'
+                  }`}
                 >
                   <div className="flex items-center justify-between mb-2">
-                    <span className="font-mono font-black text-base text-white tracking-wider bg-slate-900 px-2.5 py-0.5 rounded-lg border border-slate-800">
+                    <span className="font-mono font-black text-base text-white tracking-wider bg-slate-900 px-2.5 py-0.5 rounded-lg border border-slate-800 flex items-center gap-1.5">
+                      {ord.isPriority && <span className="text-amber-400">⚡</span>}
                       {ord.licensePlate}
                     </span>
                     <div className="flex items-center gap-1.5">
+                      {ord.isPriority && (
+                        <span className="text-[9px] font-black px-1.5 py-0.5 rounded bg-amber-500 text-slate-950 uppercase flex items-center gap-0.5 shadow">
+                          <Zap className="w-2.5 h-2.5 fill-current" /> Ekspres
+                        </span>
+                      )}
                       {ord.enteredByWash && (
                         <span className="text-[9px] font-black px-1.5 py-0.5 rounded bg-violet-500 text-white uppercase" title="Wprowadzone ręcznie przez myjnię (bez planowania działu)">
                           Wpis myjni
@@ -323,6 +441,19 @@ export default function SalonDashboard({
                       </span>
                     </div>
                   </div>
+
+                  {/* Priority audit info */}
+                  {ord.isPriority && (
+                    <div className="mb-2 px-2.5 py-1.5 rounded-lg bg-amber-950/60 border border-amber-500/40 text-[11px] text-amber-200">
+                      <span className="text-amber-400 font-semibold">Zatwierdził: </span>
+                      <strong className="text-white">{ord.priorityAuthorizer || 'Brak'}</strong>
+                      {ord.priorityReason && (
+                        <div className="text-[10px] text-amber-200/80 italic mt-0.5">
+                          Powód: {ord.priorityReason}
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   {/* Delay Warning Notification on TV Dashboard */}
                   {ord.scheduledStartTime && 
