@@ -26,6 +26,7 @@ model Department {
   createdAt DateTime    @default(now())
   updatedAt DateTime    @updatedAt
   orders    WashOrder[]
+  chatThreads ChatThread[]
 }
 
 model WashCategory {
@@ -52,6 +53,7 @@ model Employee {
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
   orders      WashOrder[]
+  chatMessages ChatMessage[]
 }
 
 model WashOrder {
@@ -98,4 +100,54 @@ model AppSetting {
   key       String   @id
   value     String
   updatedAt DateTime @updatedAt
+}
+
+model ChatThread {
+  id           String        @id @default(cuid())
+  // Dział, z którym prowadzona jest rozmowa (null = rozmowa "globalna" widoczna dla wszystkich)
+  departmentId String?
+  department   Department?   @relation(fields: [departmentId], references: [id])
+  subject      String?       // opcjonalny tytuł wątku
+  isClosed     Boolean       @default(false)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  messages     ChatMessage[]
+
+  @@index([departmentId])
+  @@index([updatedAt])
+}
+
+model ChatMessage {
+  id        String     @id @default(cuid())
+  threadId  String
+  thread    ChatThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+
+  // Kto wysłał wiadomość:
+  // senderType: "DEPARTMENT" (dział), "WASHER" (myjnia / pracownik), "ADMIN"
+  senderType String
+  // senderDepartmentSlug: dział nadawcy (zawsze dla DEPARTMENT; dla WASHER/ADMIN = null)
+  senderDepartmentSlug String?
+  // senderName: konkretne imię osoby wpisane przy wysyłce (wymagane)
+  senderName String
+  // Opcjonalne powiązanie z pracownikiem myjni (jeśli wysłane jako konkretny user myjni)
+  senderEmployeeId String?
+  senderEmployee   Employee? @relation(fields: [senderEmployeeId], references: [id])
+
+  body       String
+  createdAt  DateTime   @default(now())
+  reads      ChatRead[]
+
+  @@index([threadId, createdAt])
+}
+
+model ChatRead {
+  id           String      @id @default(cuid())
+  messageId    String
+  message      ChatMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  // Kto przeczytał: "DEPARTMENT:<slug>" | "WASHER" | "ADMIN" | "WASHER_EMPLOYEE:<id>"
+  readerKey    String
+  readAt       DateTime    @default(now())
+
+  @@unique([messageId, readerKey])
+  @@index([readerKey])
 }

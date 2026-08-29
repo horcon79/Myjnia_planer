@@ -153,3 +153,63 @@ input[type="datetime-local"]::-webkit-calendar-picker-indicator:hover {
 .pulse-ready {
   animation: readyGlow 2s infinite ease-in-out;
 }
+
+/* ===== Floating Chat ===== */
+.chat-fab {
+  animation: chatFabIn 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+@keyframes chatFabIn {
+  from {
+    opacity: 0;
+    transform: scale(0.4) translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.chat-fab-ping {
+  animation: chatFabBounce 0.6s ease-in-out 2;
+}
+
+@keyframes chatFabBounce {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.15);
+  }
+}
+
+.chat-badge {
+  animation: chatBadgePop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+@keyframes chatBadgePop {
+  from {
+    opacity: 0;
+    transform: scale(0);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.chat-popup {
+  animation: chatPopupIn 0.25s cubic-bezier(0.34, 1.4, 0.64, 1) both;
+  transform-origin: bottom right;
+}
+
+@keyframes chatPopupIn {
+  from {
+    opacity: 0;
+    transform: scale(0.85) translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
