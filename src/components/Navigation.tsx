@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { 
@@ -10,11 +10,6 @@ import {
   Settings2, 
   LogOut, 
   UserCircle2, 
-  Wrench,
-  Car,
-  BadgeCheck,
-  Sparkles,
-  ShieldAlert,
   BarChart3
 } from 'lucide-react';
 import { SessionUser, logout } from '@/actions/auth';
@@ -27,12 +22,6 @@ interface NavigationProps {
 export default function Navigation({ user }: NavigationProps) {
   const pathname = usePathname();
   const router = useRouter();
-  const [isClient, setIsClient] = useState(false);
-
-  useEffect(() => {
-    setIsClient(true);
-  }, []);
-
   const handleLogout = async () => {
     await logout();
     router.push('/');
@@ -85,29 +74,29 @@ export default function Navigation({ user }: NavigationProps) {
   });
 
   return (
-    <header className="sticky top-0 z-50 bg-slate-900/90 backdrop-blur-md border-b border-slate-800 shadow-lg">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <header className="app-navigation sticky top-0 z-40 bg-slate-900/90 backdrop-blur-md border-b border-slate-800 shadow-lg">
+      <div className="max-w-[1536px] mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16 md:h-20">
           
           {/* Logo & Brand */}
           <Link 
             href={user?.role === 'WASHER' ? '/planner' : '/order'} 
-            className="flex items-center gap-3 group"
+            className="flex shrink-0 items-center gap-2 sm:gap-3 group"
           >
             <div className="w-10 h-10 md:w-12 md:h-12 rounded-xl flex items-center justify-center overflow-hidden bg-white shadow-lg shadow-sky-500/20 group-hover:scale-105 transition-transform">
               <AnimatedDroplet size={32} />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <span className="font-extrabold text-lg md:text-xl tracking-tight text-white group-hover:text-sky-400 transition-colors">
+                <span className="whitespace-nowrap font-extrabold text-sm sm:text-lg md:text-xl tracking-tight text-white group-hover:text-sky-400 transition-colors">
                   MYJNIA PLANER
                 </span>
               </div>
             </div>
           </Link>
 
-          {/* Desktop & Tablet Navigation */}
-          <nav className="hidden md:flex items-center gap-2 lg:gap-3">
+          {/* Desktop navigation */}
+          <nav className="hidden 2xl:flex items-center gap-1">
             {visibleNavItems.map((item) => {
               const Icon = item.icon;
               const isActive = pathname === item.href;
@@ -115,7 +104,8 @@ export default function Navigation({ user }: NavigationProps) {
                 <Link
                   key={item.href}
                   href={item.href}
-                  className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-semibold text-sm transition-all ${
+                  aria-current={isActive ? 'page' : undefined}
+                  className={`flex items-center gap-2 px-2 py-2.5 rounded-xl font-semibold text-sm transition-all ${
                     isActive
                       ? 'bg-sky-500 text-white shadow-lg shadow-sky-500/25 scale-100'
                       : 'text-slate-300 hover:text-white hover:bg-slate-800/80'
@@ -156,7 +146,8 @@ export default function Navigation({ user }: NavigationProps) {
                 <button
                   onClick={handleLogout}
                   title="Zmień profil / wyloguj"
-                  className="ml-1 p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-slate-700/50 transition-colors"
+                  aria-label="Zmień profil lub wyloguj"
+                  className="ml-1 min-h-11 min-w-11 flex items-center justify-center p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-slate-700/50 transition-colors"
                 >
                   <LogOut className="w-4 h-4" />
                 </button>
@@ -174,8 +165,8 @@ export default function Navigation({ user }: NavigationProps) {
 
         </div>
 
-        {/* Mobile Navigation bar */}
-        <div className="flex md:hidden items-center justify-around py-2 border-t border-slate-800/80 gap-1">
+        {/* Phone and tablet navigation */}
+        <div className="flex 2xl:hidden items-center justify-around py-2 border-t border-slate-800/80 gap-1">
           {visibleNavItems.map((item) => {
             const Icon = item.icon;
             const isActive = pathname === item.href;
@@ -183,7 +174,8 @@ export default function Navigation({ user }: NavigationProps) {
               <Link
                 key={item.href}
                 href={item.href}
-                className={`flex-1 flex flex-col items-center py-2 px-1 rounded-lg text-center text-xs font-medium transition-colors ${
+                  aria-current={isActive ? 'page' : undefined}
+                className={`min-h-12 min-w-0 flex-1 flex flex-col items-center py-2 px-1 rounded-lg text-center text-xs font-medium transition-colors ${
                   isActive
                     ? 'bg-sky-500/15 text-sky-400 border border-sky-500/30'
                     : 'text-slate-400 hover:text-slate-200'

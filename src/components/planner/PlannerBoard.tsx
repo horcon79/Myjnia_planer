@@ -65,6 +65,8 @@ export default function PlannerBoard({
 
   // Current selected date
   const [currentDate, setCurrentDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+  const [visibleEmployeeId, setVisibleEmployeeId] = useState('all');
+  const lastDragEnd = useRef(-Infinity);
   const [orders, setOrders] = useState<any[]>([]);
   const [pastUnfinishedOrders, setPastUnfinishedOrders] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -121,7 +123,7 @@ export default function PlannerBoard({
   const workEndHour = parseInt(settings.WORK_END_HOUR || '18', 10);
 
   // Timeline geometry: fixed slot height + gap so absolute card positioning aligns with slot cells
-  const SLOT_HEIGHT = 74;
+  const SLOT_HEIGHT = 112;
   const SLOT_GAP = 8;
   const SLOT_STEP = SLOT_HEIGHT + SLOT_GAP;
 
@@ -515,8 +517,10 @@ export default function PlannerBoard({
   };
 
   const handleCardPointerDown = (e: React.PointerEvent, ord: any) => {
-    if (!canEdit || ord.status === 'COMPLETED') return;
+    // Native touch scrolling takes priority; tapping a card opens scheduling.
+    if (e.pointerType !== 'mouse' || e.button !== 0 || !canEdit || ord.status === 'COMPLETED') return;
     if ((e.target as HTMLElement).closest('button')) return;
+    e.currentTarget.setPointerCapture(e.pointerId);
 
     dragRef.current = { order: ord, pointerId: e.pointerId, startX: e.clientX, startY: e.clientY, active: false };
     clearLongPress();
@@ -588,7 +592,8 @@ export default function PlannerBoard({
     setDragPos(null);
     setDragOrderId(null);
 
-    if (ref && target) {
+    lastDragEnd.current = e.timeStamp;
+    if (e.type !== 'pointercancel' && ref && target) {
       const order = ref.order;
       const oldStart = order.scheduledStartTime ? new Date(order.scheduledStartTime) : null;
       const oldDate = oldStart ? format(oldStart, 'yyyy-MM-dd') : null;
@@ -731,8 +736,11 @@ export default function PlannerBoard({
   }, [orders]);
 
   // Column width calculations based on active employee count (1-5+)
-  const columnMinWidth = activeEmployees.length >= 4 ? '185px' : '220px';
-  const gridTemplate = `75px repeat(${activeEmployees.length}, minmax(${columnMinWidth}, 1fr))`;
+  // Filtering changes only the view, never the shift or order assignment.
+  const visibleEmployees = visibleEmployeeId === 'all' || !activeEmployees.some(e => e.id === visibleEmployeeId)
+    ? activeEmployees
+    : activeEmployees.filter(e => e.id === visibleEmployeeId);
+  const gridTemplate = `56px repeat(${visibleEmployees.length}, minmax(220px, 1fr))`;
 
   // Timeline geometry: fixed slot height + gap so absolute card positioning aligns with slot cells
   const columnHeight = timeSlots.length * SLOT_STEP - SLOT_GAP;
@@ -822,13 +830,13 @@ export default function PlannerBoard({
   }, [cardLayouts, timeSlots.length]);
 
   return (
-    <div className="flex-1 flex flex-col space-y-4">
+    <div className="planner-board min-w-0 flex-1 flex flex-col space-y-4">
       
       {/* Top Tablet Action Bar */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-3 sm:p-4 shadow-xl flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3">
         
         {/* Date Navigator */}
-        <div className="flex items-center gap-1.5 sm:gap-2">
+        <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
           <button
             onClick={() => {
               const prev = subDays(new Date(currentDate), 1);
@@ -1231,12 +1239,29 @@ export default function PlannerBoard({
         </div>
       )}
 
+      {activeEmployees.length > 0 && (
+        <label className="flex flex-wrap items-center gap-3 text-sm font-semibold text-slate-300">
+          Widok pracowników
+          <select
+            aria-label="Widok pracowników"
+            value={activeEmployees.some(e => e.id === visibleEmployeeId) ? visibleEmployeeId : 'all'}
+            onChange={e => setVisibleEmployeeId(e.target.value)}
+            className="min-h-12 max-w-full rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-base text-white"
+          >
+            <option value="all">Wszyscy na zmianie</option>
+            {activeEmployees.map(emp => <option key={emp.id} value={emp.id}>{emp.name}</option>)}
+          </select>
+        </label>
+      )}
+
       {/* Main Grid: Staff Columns & Timeline (Scrollable & Auto-centered) */}
       <div 
         ref={timelineScrollRef}
-        className="flex-1 bg-slate-900 border border-slate-800 rounded-3xl p-3 sm:p-5 shadow-2xl overflow-x-auto max-h-[75vh] overflow-y-auto relative"
+        aria-label="Harmonogram myjni"
+        tabIndex={0}
+        className="planner-timeline min-w-0 w-full flex-1 bg-slate-900 border border-slate-800 rounded-3xl p-2 sm:p-4 shadow-2xl overflow-auto max-h-[75dvh] relative"
       >
-        <div className="flex items-center justify-end mb-2 text-[10px] text-slate-500 gap-4">
+        <div className="flex flex-wrap items-center justify-end mb-2 text-xs text-slate-500 gap-4">
           {canEdit ? (
             <>
               <span className="flex items-center gap-1.5">
@@ -1245,7 +1270,7 @@ export default function PlannerBoard({
               </span>
               <span className="flex items-center gap-1.5">
                 <Move className="w-3 h-3 text-sky-400" />
-                Przytrzymaj auto i przeciągnij, aby zmienić godzinę lub pracownika
+                Dotknij karty, aby zmienić termin. Mysz: przytrzymaj i przeciągnij.
               </span>
             </>
           ) : (
@@ -1277,18 +1302,18 @@ export default function PlannerBoard({
             )}
           </div>
         ) : (
-          <div className="min-w-full">
+          <div className="w-full" style={{ minWidth: 56 + visibleEmployees.length * 232 }}>
             
             {/* Sticky Columns Header (Employees) */}
             <div 
               className="grid gap-2 sm:gap-3 mb-3 sticky top-0 z-30 bg-slate-900/95 backdrop-blur-md pb-2 border-b border-slate-800" 
               style={{ gridTemplateColumns: gridTemplate }}
             >
-              <div className="flex items-center justify-center font-bold text-[11px] uppercase tracking-wider text-slate-400 bg-slate-950 rounded-xl border border-slate-800">
+              <div className="sticky left-0 z-40 flex items-center justify-center font-bold text-[11px] uppercase tracking-wider text-slate-400 bg-slate-950 rounded-xl border border-slate-800">
                 Czas
               </div>
 
-              {activeEmployees.map((emp) => {
+              {visibleEmployees.map((emp) => {
                 // Only count active orders strictly belonging to this viewed day
                 const empOrders = orders.filter((o) => {
                   if (o.assignedEmployeeId !== emp.id || o.status === 'COMPLETED') return false;
@@ -1326,7 +1351,7 @@ export default function PlannerBoard({
             {/* Time Grid: fixed-height columns per employee, cards span their duration */}
             <div className="grid gap-2 sm:gap-3" style={{ gridTemplateColumns: gridTemplate }}>
               {/* Time labels column */}
-              <div className="flex flex-col gap-2">
+              <div className="sticky left-0 z-20 bg-slate-900 flex flex-col gap-2">
                 {timeSlots.map((slot) => {
                   const currentSlot = getCurrentSlotString();
                   const isCurrentSlot = isToday && slot === currentSlot;
@@ -1357,7 +1382,7 @@ export default function PlannerBoard({
               </div>
 
               {/* Employee columns */}
-              {activeEmployees.map((emp) => (
+              {visibleEmployees.map((emp) => (
                 <div key={emp.id} className="group relative" style={{ height: columnHeight }}>
                   {/* Background slot cells (drop targets + long-press quick add) */}
                   {timeSlots.map((slot, slotIdx) => {
@@ -1434,9 +1459,11 @@ export default function PlannerBoard({
                         onPointerMove={handleCardPointerMove}
                         onPointerUp={handleCardPointerUp}
                         onPointerCancel={handleCardPointerUp}
-                        onClick={() => { if (isCondensed) setEditingOrder(ord); }}
+                        onClick={(e) => {
+                          if (!(e.target as HTMLElement).closest('button') && e.timeStamp - lastDragEnd.current > 500) setEditingOrder(ord);
+                        }}
                         style={{
-                          touchAction: 'none',
+                          touchAction: 'auto',
                           position: 'absolute',
                           top: cardTop,
                           height: cardHeight,
@@ -1489,6 +1516,37 @@ export default function PlannerBoard({
                             : 'p-2.5 sm:p-3 bg-slate-900 border-slate-700 text-white hover:border-sky-500'
                         } ${isTight ? 'p-1' : isCompact ? 'p-1.5' : ''}`}
                       >
+                        {isCondensed && (
+                          <div className="planner-touch-card p-1.5 space-y-1">
+                            <div className="truncate font-mono text-sm font-black" title={ord.licensePlate}>{ord.licensePlate}</div>
+                            <div className="truncate text-xs text-slate-300">{ord.category?.name}</div>
+                            <div className="flex gap-1">
+                              {canEdit && ['PLANNED', 'IN_PROGRESS', 'READY'].includes(ord.status) && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (ord.status === 'PLANNED') handleStartOrder(ord.id);
+                                    if (ord.status === 'IN_PROGRESS') setFinishConfirmId(ord.id);
+                                    if (ord.status === 'READY') handleCompleteOrder(ord.id);
+                                  }}
+                                  className="min-w-0 flex-1 rounded-lg bg-sky-500 px-1 text-xs font-bold text-white"
+                                >
+                                  {ord.status === 'PLANNED' ? 'Start' : ord.status === 'IN_PROGRESS' ? 'Gotowe' : 'Wydane'}
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                aria-label={`Szczegóły i termin: ${ord.licensePlate}`}
+                                onClick={(e) => { e.stopPropagation(); setEditingOrder(ord); }}
+                                className="shrink-0 flex items-center justify-center rounded-lg bg-slate-800 text-sky-300"
+                              >
+                                <Eye className="h-5 w-5" />
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                        <div className={isCondensed ? 'planner-card-details' : undefined}>
                         {isTight ? (
                           <>
                             <div className="flex items-center gap-1">
@@ -1833,6 +1891,7 @@ export default function PlannerBoard({
 
                           </>
                         )}
+                        </div>
 
                       </div>
                     );
@@ -1883,7 +1942,7 @@ export default function PlannerBoard({
 
       {/* Tablet-Friendly In-App Delete Confirmation Modal */}
       {deleteConfirmId && (
-        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+        <div className="planner-dialog fixed inset-0 z-[100] bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-700 rounded-3xl p-6 sm:p-7 w-full max-w-sm shadow-2xl text-center animate-in fade-in zoom-in duration-150">
             <div className="w-14 h-14 rounded-2xl bg-rose-500/10 text-rose-400 flex items-center justify-center mx-auto mb-4">
               <AlertOctagon className="w-8 h-8" />
@@ -1915,7 +1974,7 @@ export default function PlannerBoard({
 
       {/* Finish Order Confirmation Modal */}
       {finishConfirmId && (
-        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+        <div className="planner-dialog fixed inset-0 z-[100] bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-emerald-700 rounded-3xl p-6 sm:p-7 w-full max-w-sm shadow-2xl text-center animate-in fade-in zoom-in duration-150">
             <div className="w-14 h-14 rounded-2xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center mx-auto mb-4">
               <CheckCircle2 className="w-8 h-8" />
@@ -1974,7 +2033,7 @@ export default function PlannerBoard({
       {noteEditOrderId && (() => {
         const ord = [...orders, ...pastUnfinishedOrders].find(o => o.id === noteEditOrderId);
         return (
-          <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="planner-dialog fixed inset-0 z-[100] bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
             <div className="bg-slate-900 border border-sky-700 rounded-3xl p-6 sm:p-7 w-full max-w-sm shadow-2xl animate-in fade-in zoom-in duration-150">
               <div className="flex items-start gap-3 mb-4">
                 <div className="w-12 h-12 rounded-2xl bg-sky-500/10 text-sky-400 flex items-center justify-center flex-shrink-0">
@@ -2021,7 +2080,7 @@ export default function PlannerBoard({
 
       {/* Drag & Drop Reschedule Confirmation Modal */}
       {dropConfirm && (
-        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+        <div className="planner-dialog fixed inset-0 z-[100] bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-sky-700 rounded-3xl p-6 sm:p-7 w-full max-w-sm shadow-2xl animate-in fade-in zoom-in duration-150">
             <div className="flex items-start gap-3 mb-4">
               <div className="w-12 h-12 rounded-2xl bg-sky-500/10 text-sky-400 flex items-center justify-center flex-shrink-0">
@@ -2077,7 +2136,7 @@ export default function PlannerBoard({
 
       {/* Edit / Schedule Order Modal */}
       {editingOrder && (
-        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4">
+        <div className="planner-dialog fixed inset-0 z-[100] bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4">
           <div className="bg-slate-900 border border-slate-700 rounded-3xl p-4 sm:p-5 w-full max-w-md shadow-2xl animate-in fade-in zoom-in duration-150 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-3">
               <div>
@@ -2436,7 +2495,7 @@ export default function PlannerBoard({
         const isStarting = shiftConfirmEmp.action === 'start';
         if (!emp) return null;
         return (
-          <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="planner-dialog fixed inset-0 z-[100] bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
             <div className="bg-slate-900 border border-sky-700 rounded-3xl p-6 sm:p-7 w-full max-w-sm shadow-2xl animate-in fade-in zoom-in duration-150 text-center">
               <div className="w-14 h-14 rounded-2xl mx-auto mb-4 flex items-center justify-center"
                 style={{ backgroundColor: emp.color }}
@@ -2484,7 +2543,7 @@ export default function PlannerBoard({
 
       {/* Quick Add Order Modal (Manual Override from Wash Bay) */}
       {quickAddPrefill && (
-        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+        <div className="planner-dialog fixed inset-0 z-[100] bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-700 rounded-3xl p-6 w-full max-w-lg shadow-2xl animate-in fade-in zoom-in duration-150">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-extrabold text-white flex items-center gap-2">
@@ -2647,7 +2706,7 @@ export default function PlannerBoard({
 
       {/* Daily Shift Start / Worker Selection Modal */}
       {showShiftStartModal && (
-        <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-4">
+        <div className="planner-dialog fixed inset-0 z-[100] bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-4">
           <div className="bg-slate-900 border-2 border-slate-700 rounded-3xl p-5 sm:p-7 w-full max-w-2xl shadow-2xl space-y-6 relative animate-in fade-in zoom-in duration-150">
             <button
               onClick={() => setShowShiftStartModal(false)}
