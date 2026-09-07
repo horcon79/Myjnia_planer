@@ -76,19 +76,19 @@ export default function Navigation({ user }: NavigationProps) {
   return (
     <header className="app-navigation sticky top-0 z-40 bg-slate-900/90 backdrop-blur-md border-b border-slate-800 shadow-lg">
       <div className="max-w-[1536px] mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-16 md:h-20">
+        <div className="navigation-brand-row flex items-center justify-between h-16 md:h-20">
           
           {/* Logo & Brand */}
           <Link 
             href={user?.role === 'WASHER' ? '/planner' : '/order'} 
             className="flex shrink-0 items-center gap-2 sm:gap-3 group"
           >
-            <div className="w-10 h-10 md:w-12 md:h-12 rounded-xl flex items-center justify-center overflow-hidden bg-white shadow-lg shadow-sky-500/20 group-hover:scale-105 transition-transform">
+            <div className="navigation-logo w-10 h-10 md:w-12 md:h-12 rounded-xl flex items-center justify-center overflow-hidden bg-white shadow-lg shadow-sky-500/20 group-hover:scale-105 transition-transform">
               <AnimatedDroplet size={32} />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <span className="whitespace-nowrap font-extrabold text-sm sm:text-lg md:text-xl tracking-tight text-white group-hover:text-sky-400 transition-colors">
+                <span className="navigation-title whitespace-nowrap font-extrabold text-sm sm:text-lg md:text-xl tracking-tight text-white group-hover:text-sky-400 transition-colors">
                   MYJNIA PLANER
                 </span>
               </div>
@@ -166,7 +166,7 @@ export default function Navigation({ user }: NavigationProps) {
         </div>
 
         {/* Phone and tablet navigation */}
-        <div className="flex 2xl:hidden items-center justify-around py-2 border-t border-slate-800/80 gap-1">
+        <div className="navigation-tabs flex 2xl:hidden items-center justify-around py-2 border-t border-slate-800/80 gap-1">
           {visibleNavItems.map((item) => {
             const Icon = item.icon;
             const isActive = pathname === item.href;

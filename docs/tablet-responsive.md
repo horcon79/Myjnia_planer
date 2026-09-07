@@ -19,3 +19,11 @@ Validated with a local, seeded SQLite database and Chromium browser emulation:
 - Existing lint violations remain in the project. Comparing changed files with the base revision shows no added errors; the unused navigation effect/imports were removed.
 
 Before rollout, check on the actual workshop tablet (including Safari if using iPad): open the on-screen keyboard in a scheduling form, rotate the device, move an order and confirm it, progress a test order through Start / Gotowe / Wydane, and verify the chat in standalone mode. Browser emulation does not validate physical-device keyboard or safe-area behavior.
+
+## Compact iPad workspace
+
+The date/roster section now starts collapsed. Its toggle retains the selected date and active employee count. The employee filter, current load and Add action remain available in the compact toolbar. Expanding the section restores the date navigation and complete roster controls. The waiting queue starts collapsed with a visible count; expand it to assign vehicles. Today's overdue section also starts collapsed with its warning/count visible.
+
+Below 1536 CSS pixels, timetable slots are 92 px instead of 112 px (approximately 18% shorter). The column/card geometry uses the same viewport-dependent height, including after resizing. Navigation, headings and spacing are smaller; key touch actions retain 44 px targets and editable fields keep their 16 px text. This does not change browser zoom. The planner takes the remaining viewport height, while expanded panels can scroll when space is limited.
+
+Verification for this iteration covers collapsed/expanded date and roster controls, next/previous day navigation, employee filtering, queue expansion, touch details and document width. Test viewports: 390×844 and 1024×768 as WASHER, 1366×1024 as DEPARTMENT, and 1536×900 as ADMIN. Physical iPad/Safari verification remains necessary, especially rotation and the on-screen keyboard.
