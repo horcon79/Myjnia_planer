@@ -528,10 +528,10 @@ export default function OrderFormAndList({
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+      <div className="grid grid-cols-1 xl:grid-cols-12 gap-5 items-start">
 
         {/* Form Column (Scaled down by 20%) */}
-        <div className="lg:col-span-5 bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-5 shadow-xl">
+        <div className="min-w-0 xl:col-span-5 bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-5 shadow-xl">
           <h2 className="text-base font-bold text-white mb-3 flex items-center gap-2">
             <Sparkles className="w-4 h-4 text-sky-400" />
             Nowe Zlecenie Mycia
@@ -1190,7 +1190,7 @@ export default function OrderFormAndList({
         </div>
 
         {/* Live Orders Column (Streamlined compact cards) */}
-        <div className="lg:col-span-7 space-y-3">
+        <div className="min-w-0 xl:col-span-7 space-y-3">
 
           {/* Filter Bar */}
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 flex flex-col sm:flex-row items-center justify-between gap-2.5 shadow">

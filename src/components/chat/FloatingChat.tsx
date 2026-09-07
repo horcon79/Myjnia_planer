@@ -264,7 +264,7 @@ export default function FloatingChat({ user }: { user: SessionUser | null }) {
 
       {/* Popup chatu */}
       {open && (
-        <div className="chat-popup fixed bottom-24 right-4 sm:right-5 z-[95] w-[calc(100vw-2rem)] max-w-[380px] h-[min(560px,calc(100vh-8rem))] rounded-2xl overflow-hidden shadow-2xl border border-slate-700/60 bg-slate-900/95 backdrop-blur-xl flex flex-col">
+        <div className="chat-popup fixed bottom-24 right-4 sm:right-5 z-[95] w-[calc(100vw-2rem)] max-w-[380px] h-[min(560px,calc(100dvh-8rem))] rounded-2xl overflow-hidden shadow-2xl border border-slate-700/60 bg-slate-900/95 backdrop-blur-xl flex flex-col">
           {/* Nagłówek */}
           <div className="flex items-center gap-3 px-4 py-3 bg-gradient-to-r from-sky-600 to-blue-700 border-b border-slate-700/50 shrink-0">
             {view === 'thread' && (
