@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useSyncExternalStore } from 'react';
 import { SessionUser } from '@/actions/auth';
 import { 
   getOrdersForDate, 
@@ -14,7 +14,8 @@ import {
 import { 
   Calendar, 
   ChevronLeft, 
-  ChevronRight, 
+  ChevronRight,
+  ChevronDown,
   Clock, 
   CheckCircle2, 
   Play, 
@@ -45,6 +46,15 @@ import {
 import { format, addDays, subDays } from 'date-fns';
 import { pl } from 'date-fns/locale';
 
+const compactQuery = '(max-width: 1535px)';
+const subscribeCompact = (notify: () => void) => {
+  const media = window.matchMedia(compactQuery);
+  media.addEventListener('change', notify);
+  return () => media.removeEventListener('change', notify);
+};
+const getCompactSnapshot = () => window.matchMedia(compactQuery).matches;
+const getServerCompactSnapshot = () => false;
+
 interface PlannerBoardProps {
   currentUser: SessionUser | null;
   departments: any[];
@@ -62,6 +72,9 @@ export default function PlannerBoard({
 }: PlannerBoardProps) {
   // Uprawnienia: tylko MYJNIA oraz KIEROWNIK/ADMIN mogą dokonywać zmian w planerze
   const canEdit = currentUser?.role === 'WASHER' || currentUser?.role === 'ADMIN';
+
+  const compact = useSyncExternalStore(subscribeCompact, getCompactSnapshot, getServerCompactSnapshot);
+  const [controlsExpanded, setControlsExpanded] = useState(false);
 
   // Current selected date
   const [currentDate, setCurrentDate] = useState(format(new Date(), 'yyyy-MM-dd'));
@@ -99,7 +112,7 @@ export default function PlannerBoard({
   const [finishNote, setFinishNote] = useState('');
   const [noteEditOrderId, setNoteEditOrderId] = useState<string | null>(null);
   const [noteEditText, setNoteEditText] = useState('');
-  const [showOverdueTodayPanel, setShowOverdueTodayPanel] = useState(true); // domyślnie rozwinięty
+  const [showOverdueTodayPanel, setShowOverdueTodayPanel] = useState(false); // Szczegóły rozwijane na żądanie
 
   // Drag & Drop (long-press) rescheduling state
   const [dragOrderId, setDragOrderId] = useState<string | null>(null);
@@ -123,7 +136,7 @@ export default function PlannerBoard({
   const workEndHour = parseInt(settings.WORK_END_HOUR || '18', 10);
 
   // Timeline geometry: fixed slot height + gap so absolute card positioning aligns with slot cells
-  const SLOT_HEIGHT = 112;
+  const SLOT_HEIGHT = compact ? 92 : 112;
   const SLOT_GAP = 8;
   const SLOT_STEP = SLOT_HEIGHT + SLOT_GAP;
 
@@ -832,9 +845,72 @@ export default function PlannerBoard({
   return (
     <div className="planner-board min-w-0 flex-1 flex flex-col space-y-4">
       
-      {/* Top Tablet Action Bar */}
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-3 sm:p-4 shadow-xl flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3">
-        
+      {/* Compact toolbar keeps the schedule visible; date and roster expand on demand. */}
+      <section className="planner-controls rounded-2xl border border-slate-800 bg-slate-900 shadow-xl">
+        <div className="planner-toolbar flex flex-wrap items-center gap-2 p-2">
+          <button
+            type="button"
+            aria-expanded={controlsExpanded}
+            aria-controls="planner-date-roster"
+            onClick={() => setControlsExpanded(value => !value)}
+            className="planner-controls-toggle min-h-11 flex items-center gap-2 rounded-xl bg-slate-950 px-3 py-2 text-left text-sm font-bold text-white"
+          >
+            <Calendar className="h-4 w-4 shrink-0 text-sky-400" />
+            <span className="capitalize">{format(new Date(currentDate), 'EEE, d MMM', { locale: pl })}</span>
+            <span className="text-xs text-slate-400">Obsada: {activeEmployees.length}</span>
+            <ChevronDown className={`h-4 w-4 shrink-0 text-sky-400 transition-transform ${controlsExpanded ? 'rotate-180' : ''}`} />
+            <span className="sr-only">Data i obsada — {controlsExpanded ? 'zwiń' : 'rozwiń'}</span>
+          </button>
+      {activeEmployees.length > 0 && (
+        <label className="planner-employee-filter flex min-w-0 items-center text-sm font-semibold text-slate-300">
+          <span className="sr-only">Widok pracowników</span>
+          <select
+            aria-label="Widok pracowników"
+            value={activeEmployees.some(e => e.id === visibleEmployeeId) ? visibleEmployeeId : 'all'}
+            onChange={e => setVisibleEmployeeId(e.target.value)}
+            className="min-h-11 w-full max-w-full rounded-xl border border-slate-700 bg-slate-900 px-2 py-1.5 text-sm text-white"
+          >
+            <option value="all">Wszyscy na zmianie</option>
+            {activeEmployees.map(emp => <option key={emp.id} value={emp.id}>{emp.name}</option>)}
+          </select>
+        </label>
+      )}
+
+        {/* Capacity Indicator & Add Button / Read-Only Mode Badge */}
+        <div className="flex items-center gap-2">
+          {!canEdit && (
+            <div className="px-3 py-2 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-300 text-xs font-bold flex items-center gap-1.5 shadow">
+              <Eye className="w-4 h-4 text-amber-400" />
+              <span>Podgląd</span>
+            </div>
+          )}
+
+          <div className={`px-3 py-2 rounded-xl border flex items-center gap-2 text-xs font-bold ${
+            currentHourLoad >= maxCarsLimit
+              ? 'bg-amber-500/15 border-amber-500/40 text-amber-300'
+              : 'bg-slate-950 border-slate-800 text-slate-300'
+          }`}>
+            <Layers className="w-4 h-4 text-sky-400" />
+            <span>Myte: <strong className="text-white text-sm">{currentHourLoad}</strong> / {maxCarsLimit}</span>
+          </div>
+
+          {canEdit && (
+            <button
+              onClick={() => setQuickAddPrefill({
+                time: getRoundedCurrentTime(30),
+                employeeId: activeEmployees[0]?.id || employees[0]?.id || '',
+              })}
+              className="px-3.5 py-2 sm:py-2.5 rounded-xl bg-sky-500 hover:bg-sky-400 text-white font-extrabold text-xs shadow-lg shadow-sky-500/20 transition-all flex items-center gap-1.5"
+            >
+              <Plus className="w-4 h-4" />
+              <span>+ DODAJ</span>
+            </button>
+          )}
+        </div>
+
+        </div>
+        <div id="planner-date-roster" hidden={!controlsExpanded}>
+          <div className="flex flex-col gap-3 border-t border-slate-800 p-3 lg:flex-row lg:items-center lg:justify-between">
         {/* Date Navigator */}
         <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
           <button
@@ -963,39 +1039,10 @@ export default function PlannerBoard({
           })}
         </div>
 
-        {/* Capacity Indicator & Add Button / Read-Only Mode Badge */}
-        <div className="flex items-center gap-2">
-          {!canEdit && (
-            <div className="px-3 py-2 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-300 text-xs font-bold flex items-center gap-1.5 shadow">
-              <Eye className="w-4 h-4 text-amber-400" />
-              <span>Podgląd ({currentUser?.name || currentUser?.code || 'Dział'})</span>
-            </div>
-          )}
 
-          <div className={`px-3 py-2 rounded-xl border flex items-center gap-2 text-xs font-bold ${
-            currentHourLoad >= maxCarsLimit
-              ? 'bg-amber-500/15 border-amber-500/40 text-amber-300'
-              : 'bg-slate-950 border-slate-800 text-slate-300'
-          }`}>
-            <Layers className="w-4 h-4 text-sky-400" />
-            <span>Myte: <strong className="text-white text-sm">{currentHourLoad}</strong> / {maxCarsLimit}</span>
           </div>
-
-          {canEdit && (
-            <button
-              onClick={() => setQuickAddPrefill({
-                time: getRoundedCurrentTime(30),
-                employeeId: activeEmployees[0]?.id || employees[0]?.id || '',
-              })}
-              className="px-3.5 py-2 sm:py-2.5 rounded-xl bg-sky-500 hover:bg-sky-400 text-white font-extrabold text-xs shadow-lg shadow-sky-500/20 transition-all flex items-center gap-1.5"
-            >
-              <Plus className="w-4 h-4" />
-              <span>+ DODAJ</span>
-            </button>
-          )}
         </div>
-
-      </div>
+      </section>
 
       {/* RED Alert Drawer for PAST Unfinished Orders (from previous days) */}
       {isToday && pastUnfinishedOrders.length > 0 && (
@@ -1168,18 +1215,16 @@ export default function PlannerBoard({
 
       {/* Unscheduled / Waiting Queue Bar for viewed date (if any) */}
       {unassignedOrders.length > 0 && (
-        <div className="bg-gradient-to-r from-slate-900 via-sky-950/40 to-slate-900 border border-sky-500/30 rounded-2xl p-3.5 shadow-lg">
-          <div className="flex items-center justify-between mb-2.5">
+        <details className="planner-queue group bg-gradient-to-r from-slate-900 via-sky-950/40 to-slate-900 border border-sky-500/30 rounded-2xl p-2 shadow-lg">
+          <summary className="min-h-11 flex cursor-pointer list-none flex-wrap items-center justify-between gap-2 rounded-lg px-2">
             <h3 className="text-xs font-black uppercase tracking-wider text-sky-300 flex items-center gap-2">
               <AlertCircle className="w-4 h-4 text-sky-400" />
-              Poczekalnia aut do przydzielenia ({unassignedOrders.length})
+              Do przydzielenia ({unassignedOrders.length})
             </h3>
-            <span className="text-[11px] text-slate-400">
-              {canEdit ? 'Tapnij auto, aby przypisać pracownika i godzinę' : 'Pojazdy oczekujące na przydzielenie przez obsługę myjni'}
-            </span>
-          </div>
+            <span className="flex items-center gap-1 text-xs text-sky-300">Pokaż / ukryj <ChevronDown className="h-4 w-4 group-open:rotate-180" /></span>
+          </summary>
 
-          <div className="flex items-center gap-2.5 overflow-x-auto pb-1.5">
+          <div className="flex items-center gap-2 overflow-x-auto pt-2 pb-1.5">
             {unassignedOrders.map((ord) => {
               const isOrdExpress = ord.isPriority;
 
@@ -1236,22 +1281,7 @@ export default function PlannerBoard({
               );
             })}
           </div>
-        </div>
-      )}
-
-      {activeEmployees.length > 0 && (
-        <label className="flex flex-wrap items-center gap-3 text-sm font-semibold text-slate-300">
-          Widok pracowników
-          <select
-            aria-label="Widok pracowników"
-            value={activeEmployees.some(e => e.id === visibleEmployeeId) ? visibleEmployeeId : 'all'}
-            onChange={e => setVisibleEmployeeId(e.target.value)}
-            className="min-h-12 max-w-full rounded-xl border border-slate-700 bg-slate-900 px-3 py-2 text-base text-white"
-          >
-            <option value="all">Wszyscy na zmianie</option>
-            {activeEmployees.map(emp => <option key={emp.id} value={emp.id}>{emp.name}</option>)}
-          </select>
-        </label>
+        </details>
       )}
 
       {/* Main Grid: Staff Columns & Timeline (Scrollable & Auto-centered) */}

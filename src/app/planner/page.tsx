@@ -28,7 +28,7 @@ export default async function PlannerPage() {
   });
 
   return (
-    <div className="min-h-screen bg-slate-950 flex flex-col">
+    <div className="planner-page min-h-screen bg-slate-950 flex flex-col">
       <Navigation user={user} />
       <main className="flex-1 w-full p-2 sm:p-4 lg:p-6 flex flex-col">
         <PlannerBoard
