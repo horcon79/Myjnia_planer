@@ -1,5 +1,6 @@
 import React from 'react';
 import { prisma } from '@/lib/prisma';
+import { INTERNAL_SETTING_PREFIX } from '@/lib/session-token';
 import { getCurrentUser } from '@/actions/auth';
 import Navigation from '@/components/Navigation';
 import PlannerBoard from '@/components/planner/PlannerBoard';
@@ -13,7 +14,7 @@ export default async function PlannerPage() {
     prisma.department.findMany({ where: { isActive: true }, orderBy: { order: 'asc' } }),
     prisma.washCategory.findMany({ where: { isActive: true }, orderBy: { order: 'asc' } }),
     prisma.employee.findMany({ where: { isActive: true }, orderBy: { name: 'asc' } }),
-    prisma.appSetting.findMany(),
+    prisma.appSetting.findMany({ where: { NOT: { key: { startsWith: INTERNAL_SETTING_PREFIX } } } }),
   ]);
 
   const settingsMap: Record<string, string> = {

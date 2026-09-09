@@ -6,7 +6,7 @@ import { getCurrentUser } from '@/actions/auth';
 
 async function checkPlannerPermission() {
   const user = await getCurrentUser();
-  if (user && user.role !== 'WASHER' && user.role !== 'ADMIN') {
+  if (!user || (user.role !== 'WASHER' && user.role !== 'ADMIN')) {
     return { allowed: false, error: 'Brak uprawnień. Tylko stanowisko myjni oraz kierownik mogą modyfikować terminarz w planerze.' };
   }
   return { allowed: true };
@@ -34,6 +34,9 @@ export interface CreateOrderInput {
 
 export async function getOrdersForDate(dateStr: string) {
   try {
+    if (!await getCurrentUser()) {
+      return { success: false, error: 'Zaloguj się, aby wyświetlić zlecenia i historię wydania.', orders: [], pastUnfinishedOrders: [] };
+    }
     const targetDate = new Date(dateStr);
     const startOfDay = new Date(targetDate);
     startOfDay.setHours(0, 0, 0, 0);
@@ -64,6 +67,7 @@ export async function getOrdersForDate(dateStr: string) {
         department: true,
         category: true,
         assignedEmployee: true,
+        releaseLogs: { orderBy: { createdAt: 'desc' } },
       },
       orderBy: [
         { isPriority: 'desc' }, // Priorytetowe na górze
@@ -94,6 +98,7 @@ export async function getOrdersForDate(dateStr: string) {
         department: true,
         category: true,
         assignedEmployee: true,
+        releaseLogs: { orderBy: { createdAt: 'desc' } },
       },
       orderBy: [
         { isPriority: 'desc' },
@@ -200,11 +205,18 @@ export async function updateOrderStatus(
     const auth = await checkPlannerPermission();
     if (!auth.allowed) return { success: false, error: auth.error };
 
+    if (newStatus === 'COMPLETED') {
+      return { success: false, error: 'Wydaj pojazd przyciskiem Wydane w planerze i potwierdź wymagane czynności.' };
+    }
+    if (!['PLANNED', 'IN_PROGRESS', 'READY', 'CANCELLED'].includes(newStatus)) {
+      return { success: false, error: 'Nieprawidłowy status zlecenia.' };
+    }
+
     const dataToUpdate: any = { status: newStatus };
 
     if (newStatus === 'IN_PROGRESS') {
       dataToUpdate.startedAt = new Date();
-    } else if (newStatus === 'READY' || newStatus === 'COMPLETED') {
+    } else if (newStatus === 'READY') {
       dataToUpdate.completedAt = new Date();
     }
 
@@ -226,6 +238,86 @@ export async function updateOrderStatus(
   } catch (error) {
     console.error('updateOrderStatus error:', error);
     return { success: false, error: 'Nie udało się zaktualizować statusu.' };
+  }
+}
+
+export async function releaseOrder(orderId: string, input: {
+  employeeId: string;
+  checklistConfirmed: boolean;
+  checklistMarkdown: string;
+  categoryId: string;
+}) {
+  try {
+    const user = await getCurrentUser();
+    if (!user || (user.role !== 'WASHER' && user.role !== 'ADMIN')) {
+      return { success: false, error: 'Brak uprawnień do wydania pojazdu.' };
+    }
+    if (typeof orderId !== 'string' || !orderId.trim() || !input ||
+        typeof input.employeeId !== 'string' || !input.employeeId.trim() ||
+        typeof input.categoryId !== 'string' || !input.categoryId.trim() ||
+        typeof input.checklistConfirmed !== 'boolean' ||
+        typeof input.checklistMarkdown !== 'string' || input.checklistMarkdown.length > 20000) {
+      return { success: false, error: 'Nieprawidłowe dane wydania. Wybierz pracownika.' };
+    }
+
+    const result = await prisma.$transaction(async (tx) => {
+      const order = await tx.washOrder.findUnique({
+        where: { id: orderId }, include: { category: true },
+      });
+      if (!order || order.status !== 'READY') {
+        return { success: false as const, error: 'Wydać można tylko pojazd gotowy do odbioru.' };
+      }
+      const employee = await tx.employee.findUnique({ where: { id: input.employeeId } });
+      if (!employee?.isActive) {
+        return { success: false as const, error: 'Wybierz aktywnego pracownika wydającego pojazd.' };
+      }
+      if (input.categoryId !== order.categoryId ||
+          (input.checklistConfirmed && !order.category.checklistRequired) ||
+          (order.category.checklistRequired && input.checklistMarkdown !== order.category.checklistMarkdown)) {
+        return { success: false as const, error: 'Kategoria lub checklista uległa zmianie. Zamknij okno, odśwież planer i potwierdź aktualną checklistę.' };
+      }
+      if (order.category.checklistRequired &&
+          (!order.category.checklistMarkdown?.trim() || !input.checklistConfirmed)) {
+        return { success: false as const, error: 'Potwierdź wykonanie wymaganej checklisty przed wydaniem.' };
+      }
+      const createdAt = new Date();
+      // Conditional write and durable unique audit key protect against concurrent/repeated issuance.
+      const changed = await tx.washOrder.updateMany({
+        where: { id: orderId, status: 'READY', categoryId: order.categoryId },
+        data: { status: 'COMPLETED', completedAt: createdAt },
+      });
+      if (changed.count !== 1) {
+        return { success: false as const, error: 'Zlecenie uległo zmianie. Odśwież widok.' };
+      }
+      const snapshot = {
+        orderId, orderIdSnapshot: orderId, orderNumber: order.orderNumber,
+        licensePlate: order.licensePlate, categoryName: order.category.name,
+        sessionSlug: user.slug, sessionName: user.name, sessionRole: user.role,
+        employeeId: employee.id, employeeName: employee.name, createdAt,
+        checklistMarkdown: order.category.checklistRequired ? order.category.checklistMarkdown : null,
+      };
+      if (order.category.checklistRequired) {
+        await tx.orderReleaseLog.create({ data: { ...snapshot, eventType: 'CHECKLIST_CONFIRMED' } });
+      }
+      await tx.orderReleaseLog.create({ data: { ...snapshot, eventType: 'VEHICLE_RELEASED' } });
+      const updated = await tx.washOrder.findUniqueOrThrow({
+        where: { id: orderId },
+        include: {
+          department: true, category: true, assignedEmployee: true,
+          releaseLogs: { orderBy: { createdAt: 'desc' } },
+        },
+      });
+      return { success: true as const, order: updated };
+    });
+    if (result.success) {
+      revalidatePath('/planner');
+      revalidatePath('/order');
+      revalidatePath('/summary');
+    }
+    return result;
+  } catch (error) {
+    console.error('releaseOrder error:', error);
+    return { success: false, error: 'Nie udało się wydać pojazdu. Odśwież widok i sprawdź, czy nie został już wydany.' };
   }
 }
 

@@ -8,6 +8,8 @@ import { upsertEmployee, toggleEmployeeActive } from '@/actions/employees';
 import { updateAppSetting } from '@/actions/settings';
 import { getDmsStatus, refreshDmsCache } from '@/actions/dms';
 import type { DmsServiceStatus } from '@/lib/dms-types';
+import { DELIVERY_CHECKLIST_TEMPLATE } from '@/lib/checklist-template';
+import ChecklistMarkdown from '@/components/ChecklistMarkdown';
 import { 
   Settings, 
   Layers, 
@@ -54,6 +56,15 @@ export default function SettingsManager({
   // Categories state
   const [categories, setCategories] = useState<any[]>(initialCategories);
   const [catModal, setCatModal] = useState<any | null>(null);
+  const [savingCategory, setSavingCategory] = useState(false);
+  const [categoryError, setCategoryError] = useState<string | null>(null);
+  const checklistMarkdown: string = catModal?.checklistMarkdown ?? '';
+  const checklistRequired = Boolean(catModal?.checklistRequired);
+  const checklistError = checklistMarkdown.length > 20000
+    ? 'Checklista może zawierać maksymalnie 20 000 znaków.'
+    : checklistRequired && !checklistMarkdown.trim()
+      ? 'Wpisz treść checklisty lub wstaw szablon przed włączeniem potwierdzenia.'
+      : null;
 
   // Departments state
   const [departments, setDepartments] = useState<any[]>(initialDepartments);
@@ -73,6 +84,7 @@ export default function SettingsManager({
   // Category Save
   const handleSaveCategory = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    if (savingCategory || checklistError) return;
     const form = e.currentTarget;
     const name = (form.elements.namedItem('cat-name') as HTMLInputElement).value;
     const duration = parseInt((form.elements.namedItem('cat-duration') as HTMLInputElement).value, 10);
@@ -80,23 +92,35 @@ export default function SettingsManager({
     const desc = (form.elements.namedItem('cat-desc') as HTMLInputElement).value;
     const notes = (form.elements.namedItem('cat-notes') as HTMLInputElement).value;
 
-    const res = await upsertCategory({
-      id: catModal?.id,
-      name,
-      defaultDurationMin: duration,
-      color,
-      description: desc,
-      suggestedNotes: notes,
-    });
+    setSavingCategory(true);
+    setCategoryError(null);
+    try {
+      const res = await upsertCategory({
+        id: catModal?.id,
+        name,
+        defaultDurationMin: duration,
+        color,
+        description: desc,
+        suggestedNotes: notes,
+        checklistRequired,
+        checklistMarkdown,
+      });
 
-    if (res.success && res.category) {
-      if (catModal?.id) {
-        setCategories(prev => prev.map(c => c.id === res.category.id ? res.category : c));
+      if (res.success && res.category) {
+        if (catModal?.id) {
+          setCategories(prev => prev.map(c => c.id === res.category.id ? res.category : c));
+        } else {
+          setCategories(prev => [...prev, res.category]);
+        }
+        setCatModal(null);
+        router.refresh();
       } else {
-        setCategories(prev => [...prev, res.category]);
+        setCategoryError(res.error || 'Nie udało się zapisać usługi. Spróbuj ponownie.');
       }
-      setCatModal(null);
-      router.refresh();
+    } catch {
+      setCategoryError('Nie udało się zapisać usługi. Sprawdź połączenie i spróbuj ponownie.');
+    } finally {
+      setSavingCategory(false);
     }
   };
 
@@ -342,7 +366,10 @@ export default function SettingsManager({
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-bold text-white">Lista Usług i Czasów Trwania</h2>
             <button
-              onClick={() => setCatModal({ defaultDurationMin: 30, color: '#3b82f6' })}
+              onClick={() => {
+                setCategoryError(null);
+                setCatModal({ defaultDurationMin: 30, color: '#3b82f6', checklistRequired: false, checklistMarkdown: '' });
+              }}
               className="px-4 py-2.5 rounded-xl bg-sky-500 hover:bg-sky-400 text-white font-bold text-xs shadow-lg shadow-sky-500/25 flex items-center gap-2"
             >
               <Plus className="w-4 h-4" />
@@ -374,6 +401,13 @@ export default function SettingsManager({
                     <p className="text-xs text-slate-400 mb-3">{cat.description}</p>
                   )}
 
+                  {cat.checklistRequired && (
+                    <span className="inline-flex items-center gap-1.5 mb-3 rounded-lg border border-sky-500/30 bg-sky-500/10 px-2.5 py-1 text-xs font-bold text-sky-300">
+                      <ShieldCheck className="w-3.5 h-3.5" />
+                      Wymagane potwierdzenie checklisty
+                    </span>
+                  )}
+
                   {cat.suggestedNotes && (
                     <div className="bg-slate-950/70 p-3 rounded-xl border border-slate-800/80 mb-3">
                       <span className="text-[10px] font-bold text-slate-500 uppercase block mb-1">
@@ -392,7 +426,10 @@ export default function SettingsManager({
 
                 <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-800/80">
                   <button
-                    onClick={() => setCatModal(cat)}
+                    onClick={() => {
+                      setCategoryError(null);
+                      setCatModal(cat);
+                    }}
                     className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition-colors flex items-center gap-1.5"
                   >
                     <Edit3 className="w-3.5 h-3.5" />
@@ -692,17 +729,18 @@ export default function SettingsManager({
       {/* Modal Category Edit */}
       {catModal && (
         <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-700 rounded-3xl p-6 sm:p-7 w-full max-w-lg shadow-2xl animate-in fade-in zoom-in duration-150">
+          <div role="dialog" aria-modal="true" aria-labelledby="category-modal-title" className="bg-slate-900 border border-slate-700 rounded-3xl p-6 sm:p-7 w-full max-w-2xl max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain shadow-2xl animate-in fade-in zoom-in duration-150">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="font-extrabold text-lg text-white">
+              <h3 id="category-modal-title" className="font-extrabold text-lg text-white">
                 {catModal.id ? 'Edytuj Usługę Mycia' : 'Dodaj Nową Usługę Mycia'}
               </h3>
-              <button onClick={() => setCatModal(null)} className="text-slate-400 hover:text-white">
+              <button disabled={savingCategory} aria-label="Zamknij formularz usługi" onClick={() => setCatModal(null)} className="text-slate-400 hover:text-white disabled:opacity-50">
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <form onSubmit={handleSaveCategory} className="space-y-4">
+            <form onSubmit={handleSaveCategory} aria-busy={savingCategory}>
+              <fieldset disabled={savingCategory} className="space-y-4 min-w-0">
               <div>
                 <label className="block text-xs font-bold uppercase text-slate-400 mb-1">Nazwa Usługi *</label>
                 <input
@@ -762,6 +800,57 @@ export default function SettingsManager({
                 <span className="text-[10px] text-slate-500">Wpisz podpowiedzi rozdzielone przecinkami</span>
               </div>
 
+              <div className="space-y-3 border-t border-slate-800 pt-4">
+                <label className="flex items-start gap-3 rounded-xl border border-slate-700 bg-slate-950 p-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={checklistRequired}
+                    onChange={(e) => setCatModal({ ...catModal, checklistRequired: e.target.checked })}
+                    className="mt-0.5 h-4 w-4 accent-sky-500"
+                  />
+                  <span className="text-sm font-bold text-white">Wymagane potwierdzenie checklisty</span>
+                </label>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <label htmlFor="cat-checklist" className="text-xs font-bold uppercase text-slate-400">Treść checklisty (Markdown)</label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (checklistMarkdown.length > 0 && !window.confirm('Zastąpić obecną treść checklisty szablonem przygotowania pojazdu do wydania?')) return;
+                      setCatModal({ ...catModal, checklistMarkdown: DELIVERY_CHECKLIST_TEMPLATE });
+                    }}
+                    className="rounded-lg border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-xs font-bold text-sky-300 hover:bg-sky-500/20"
+                  >
+                    Wstaw szablon wydania
+                  </button>
+                </div>
+                <textarea
+                  id="cat-checklist"
+                  name="cat-checklist"
+                  rows={10}
+                  value={checklistMarkdown}
+                  onChange={(e) => setCatModal({ ...catModal, checklistMarkdown: e.target.value })}
+                  aria-invalid={Boolean(checklistError)}
+                  aria-describedby={`cat-checklist-help${checklistError ? ' cat-checklist-error' : ''}`}
+                  placeholder={'## Przygotowanie\n- Wjazd na myjnię'}
+                  className="block w-full resize-y rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 font-mono text-sm text-white focus:border-sky-500"
+                />
+                <p id="cat-checklist-help" className="text-xs text-slate-400">
+                  Nagłówki: ## Sekcja, lista: - Punkt. {checklistMarkdown.length.toLocaleString('pl-PL')} / 20 000 znaków.
+                  {' '}Wyłączenie potwierdzenia nie usuwa treści.
+                </p>
+                {checklistError && <p id="cat-checklist-error" role="alert" className="text-xs font-bold text-rose-400">{checklistError}</p>}
+                {checklistMarkdown.trim() && !checklistError && (
+                  <details className="rounded-xl border border-slate-700 bg-slate-950 p-4">
+                    <summary className="cursor-pointer text-xs font-bold text-sky-300">Podgląd checklisty</summary>
+                    <div className="mt-3 min-w-0 overflow-x-auto">
+                      <ChecklistMarkdown markdown={checklistMarkdown} />
+                    </div>
+                  </details>
+                )}
+              </div>
+
+              {categoryError && <p role="alert" className="rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-sm text-rose-300">{categoryError}</p>}
+
               <div className="flex items-center gap-3 pt-3">
                 <button
                   type="button"
@@ -772,11 +861,13 @@ export default function SettingsManager({
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-3 rounded-xl bg-sky-500 hover:bg-sky-400 text-white font-bold text-xs shadow-lg"
+                  disabled={savingCategory || Boolean(checklistError)}
+                  className="flex-1 py-3 rounded-xl bg-sky-500 hover:bg-sky-400 text-white font-bold text-xs shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  Zapisz
+                  {savingCategory ? 'Zapisywanie...' : 'Zapisz'}
                 </button>
               </div>
+              </fieldset>
             </form>
           </div>
         </div>

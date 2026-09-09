@@ -18,7 +18,7 @@ export default async function HomePage() {
       where: { isActive: true },
       orderBy: { order: 'asc' },
     }),
-    prisma.appSetting.findMany(),
+    prisma.appSetting.findMany({ where: { key: 'HIDE_DEFAULT_PINS' } }),
   ]);
 
   const hideDefaultPins = settingsList.find(s => s.key === 'HIDE_DEFAULT_PINS')?.value === 'true';

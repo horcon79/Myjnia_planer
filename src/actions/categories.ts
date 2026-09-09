@@ -43,11 +43,22 @@ export async function upsertCategory(data: {
   color: string;
   description?: string;
   suggestedNotes?: string;
+  checklistRequired: boolean;
+  checklistMarkdown: string;
   order?: number;
   isActive?: boolean;
 }) {
   try {
     await requireAdmin();
+    if (!data || typeof data.checklistRequired !== 'boolean' || typeof data.checklistMarkdown !== 'string') {
+      return { success: false, error: 'Nieprawidłowe ustawienia checklisty. Odśwież formularz i spróbuj ponownie.' };
+    }
+    if (data.checklistMarkdown.length > 20000) {
+      return { success: false, error: 'Checklista może mieć maksymalnie 20 000 znaków.' };
+    }
+    if (data.checklistRequired && !data.checklistMarkdown.trim()) {
+      return { success: false, error: 'Włączona checklista nie może być pusta.' };
+    }
     if (data.id) {
       const updated = await prisma.washCategory.update({
         where: { id: data.id },
@@ -57,6 +68,8 @@ export async function upsertCategory(data: {
           color: data.color,
           description: data.description?.trim() || null,
           suggestedNotes: data.suggestedNotes?.trim() || null,
+          checklistRequired: data.checklistRequired,
+          checklistMarkdown: data.checklistMarkdown,
           order: data.order ?? 0,
           isActive: data.isActive ?? true,
         },
@@ -73,6 +86,8 @@ export async function upsertCategory(data: {
           color: data.color,
           description: data.description?.trim() || null,
           suggestedNotes: data.suggestedNotes?.trim() || null,
+          checklistRequired: data.checklistRequired,
+          checklistMarkdown: data.checklistMarkdown,
           order: data.order ?? 0,
           isActive: data.isActive ?? true,
         },

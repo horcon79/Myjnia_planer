@@ -2,7 +2,33 @@
 
 import { cookies, headers } from 'next/headers';
 import { prisma } from '@/lib/prisma';
-import { revalidatePath } from 'next/cache';
+import { randomBytes } from 'node:crypto';
+import { SESSION_MAX_AGE, SESSION_SECRET_KEY, signSessionToken, verifySessionToken } from '@/lib/session-token';
+
+async function getSessionSecret(): Promise<string> {
+  if (process.env.SESSION_SECRET) return process.env.SESSION_SECRET;
+  const existing = await prisma.appSetting.findUnique({ where: { key: SESSION_SECRET_KEY } });
+  if (existing) {
+    if (!existing.value) throw new Error('Empty session secret');
+    return existing.value;
+  }
+  // Persist once in the shared SQLite volume; never replace another process's secret.
+  try {
+    const setting = await prisma.appSetting.upsert({
+      where: { key: SESSION_SECRET_KEY },
+      update: {},
+      create: { key: SESSION_SECRET_KEY, value: randomBytes(32).toString('base64url') },
+    });
+    if (!setting.value) throw new Error('Empty session secret');
+    return setting.value;
+  } catch (error) {
+    // Prisma may emulate an empty-update upsert; recover a concurrent insert.
+    if (!error || typeof error !== 'object' || !('code' in error) || error.code !== 'P2002') throw error;
+    const setting = await prisma.appSetting.findUniqueOrThrow({ where: { key: SESSION_SECRET_KEY } });
+    if (!setting.value) throw new Error('Empty session secret');
+    return setting.value;
+  }
+}
 
 export interface SessionUser {
   slug: string;
@@ -18,7 +44,7 @@ export async function loginWithPin(slug: string, pin: string): Promise<{ success
       where: { slug },
     });
 
-    if (!dep) {
+    if (!dep || !dep.isActive) {
       return { success: false, error: 'Nie znaleziono takiego profilu/działu.' };
     }
 
@@ -26,17 +52,7 @@ export async function loginWithPin(slug: string, pin: string): Promise<{ success
       return { success: false, error: 'Nieprawidłowy kod PIN / hasło.' };
     }
 
-    let role: 'WASHER' | 'DEPARTMENT' | 'ADMIN' = 'DEPARTMENT';
-    if (dep.slug === 'myjnia') role = 'WASHER';
-    if (dep.slug === 'admin') role = 'ADMIN';
-
-    const sessionData: SessionUser = {
-      slug: dep.slug,
-      name: dep.name,
-      code: dep.code,
-      color: dep.color,
-      role,
-    };
+    const token = signSessionToken(dep.id, await getSessionSecret());
 
     const cookieStore = await cookies();
     const headerList = await headers();
@@ -45,11 +61,11 @@ export async function loginWithPin(slug: string, pin: string): Promise<{ success
     const proto = (headerList.get('x-forwarded-proto') || '').split(',').map((p) => p.trim());
     const isHttps = proto.includes('https');
     const forceSecure = process.env.COOKIE_SECURE === 'true';
-    cookieStore.set('myjnia_session', JSON.stringify(sessionData), {
-      httpOnly: false,
+    cookieStore.set('myjnia_session', token, {
+      httpOnly: true,
       secure: forceSecure || isHttps,
       sameSite: 'lax',
-      maxAge: 60 * 60 * 24 * 30, // 30 dni
+      maxAge: SESSION_MAX_AGE,
       path: '/',
     });
 
@@ -70,7 +86,18 @@ export async function getCurrentUser(): Promise<SessionUser | null> {
     const cookieStore = await cookies();
     const cookie = cookieStore.get('myjnia_session');
     if (!cookie?.value) return null;
-    return JSON.parse(cookie.value) as SessionUser;
+    if (!cookie.value.startsWith('v1.')) return null;
+    const departmentId = verifySessionToken(cookie.value, await getSessionSecret());
+    if (!departmentId) return null;
+    const dep = await prisma.department.findUnique({ where: { id: departmentId } });
+    if (!dep?.isActive) return null;
+    return {
+      slug: dep.slug,
+      name: dep.name,
+      code: dep.code,
+      color: dep.color,
+      role: dep.slug === 'admin' ? 'ADMIN' : dep.slug === 'myjnia' ? 'WASHER' : 'DEPARTMENT',
+    };
   } catch {
     return null;
   }
