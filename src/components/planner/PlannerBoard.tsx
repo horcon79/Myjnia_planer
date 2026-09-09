@@ -115,7 +115,6 @@ export default function PlannerBoard({
   const [releaseOrderSnapshot, setReleaseOrderSnapshot] = useState<React.ComponentProps<typeof ReleaseOrderDialog>['order'] | null>(null);
   const [noteEditOrderId, setNoteEditOrderId] = useState<string | null>(null);
   const [noteEditText, setNoteEditText] = useState('');
-  const [showOverdueTodayPanel, setShowOverdueTodayPanel] = useState(false); // Szczegóły rozwijane na żądanie
 
   // Drag & Drop (long-press) rescheduling state
   const [dragOrderId, setDragOrderId] = useState<string | null>(null);
@@ -1048,26 +1047,33 @@ export default function PlannerBoard({
         </div>
       </section>
 
-      {/* RED Alert Drawer for PAST Unfinished Orders (from previous days) */}
+      {/* RED Alert Drawer for PAST Unfinished Orders (from previous days) – collapsed by default */}
       {isToday && pastUnfinishedOrders.length > 0 && (
-        <div id="past-orders-panel" className="bg-gradient-to-r from-rose-950/90 via-red-950/80 to-slate-950 border-2 border-rose-500 rounded-3xl p-4 sm:p-5 shadow-2xl space-y-3">
-          <div className="flex items-center justify-between flex-wrap gap-2">
+        <details id="past-orders-panel" className="planner-queue group bg-gradient-to-r from-rose-950/90 via-red-950/80 to-slate-950 border-2 border-rose-500 rounded-3xl shadow-2xl">
+          <summary className="min-h-11 flex cursor-pointer list-none flex-wrap items-center justify-between gap-2 rounded-3xl px-4 py-3 sm:px-5 hover:bg-rose-950/40 transition-colors">
             <div className="flex items-center gap-2.5">
-              <div className="p-2 rounded-xl bg-rose-500/20 text-rose-400 font-black">
+              <div className="p-2 rounded-xl bg-rose-500/20 text-rose-400 font-black flex-shrink-0">
                 <AlertOctagon className="w-5 h-5 animate-pulse" />
               </div>
               <div>
-                <h3 className="text-sm sm:text-base font-black text-rose-300 uppercase tracking-tight">
-                  Niezrealizowane Auta z Poprzednich Dni ({pastUnfinishedOrders.length})
+                <h3 className="text-sm sm:text-base font-black text-rose-300 uppercase tracking-tight flex items-center gap-2 flex-wrap">
+                  Niezrealizowane Auta z Poprzednich Dni
+                  <span className="text-xs font-black px-2 py-0.5 rounded-full bg-rose-500 text-white shadow" title="Liczba pojazdów do obsłużenia">
+                    {pastUnfinishedOrders.length}
+                  </span>
                 </h3>
-                <p className="text-xs text-rose-200/80">
-                  Te pojazdy nie zostały umyte w wyznaczonym dniu. Przepisz je na dzisiejszy wolny slot lub oznacz jako gotowe.
+                <p className="text-xs text-rose-200/80 hidden sm:block">
+                  Te pojazdy nie zostały umyte w wyznaczonym dniu. Kliknij, aby rozwinąć listę.
                 </p>
               </div>
             </div>
-          </div>
+            <span className="flex items-center gap-1 text-xs font-bold text-rose-300 whitespace-nowrap">
+              Pokaż / ukryj <ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180" />
+            </span>
+          </summary>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+          <div className="px-4 pb-4 sm:px-5 sm:pb-5">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 max-h-[45dvh] overflow-y-auto">
             {pastUnfinishedOrders.map((pOrd) => (
               <div
                 key={pOrd.id}
@@ -1122,37 +1128,36 @@ export default function PlannerBoard({
                 </div>
               </div>
             ))}
+            </div>
           </div>
-        </div>
+        </details>
       )}
 
-      {/* Alert banner for today's overdue cars (earlier hours of today) */}
+      {/* Alert banner for today's overdue cars (earlier hours of today) – collapsed by default */}
       {overdueOrdersToday.length > 0 && (
-        <div className="bg-gradient-to-r from-amber-950/80 via-rose-950/50 to-slate-900 border border-amber-500/50 rounded-2xl shadow-lg overflow-hidden">
-          {/* Header row */}
-          <div className="p-3.5 flex items-center justify-between gap-3">
+        <details className="planner-queue group bg-gradient-to-r from-amber-950/80 via-rose-950/50 to-slate-900 border border-amber-500/50 rounded-2xl shadow-lg overflow-hidden">
+          <summary className="min-h-11 flex cursor-pointer list-none items-center justify-between gap-3 px-3.5 py-2.5 hover:bg-amber-950/40 transition-colors">
             <div className="flex items-center gap-2.5">
               <AlertTriangle className="w-5 h-5 text-amber-400 flex-shrink-0" />
               <div>
-                <p className="text-xs font-extrabold text-white">
+                <p className="text-xs font-extrabold text-white flex items-center gap-2 flex-wrap">
                   Uwaga: {overdueOrdersToday.length} {overdueOrdersToday.length === 1 ? 'auto ma zaległą wcześniejszą godzinę' : 'auta mają zaległe wcześniejsze godziny'} na dzisiejszym grafiku!
+                  <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-amber-500 text-slate-950 shadow" title="Liczba pojazdów do obsłużenia">
+                    {overdueOrdersToday.length}
+                  </span>
                 </p>
                 <p className="text-[11px] text-amber-200">
-                  Kliknij aby zobaczyć zaległe auta i wykonać akcję.
+                  Kliknij, aby zobaczyć zaległe auta i wykonać akcję.
                 </p>
               </div>
             </div>
-            <button
-              onClick={() => setShowOverdueTodayPanel(prev => !prev)}
-              className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs shadow whitespace-nowrap flex items-center gap-1.5"
-            >
-              {showOverdueTodayPanel ? 'Zwiń ↑' : `Pokaż (${overdueOrdersToday.length}) ↓`}
-            </button>
-          </div>
+            <span className="flex items-center gap-1 text-xs font-bold text-amber-300 whitespace-nowrap">
+              Pokaż / ukryj <ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180" />
+            </span>
+          </summary>
 
           {/* Expandable list of overdue today's orders */}
-          {showOverdueTodayPanel && (
-            <div className="border-t border-amber-500/30 p-3.5 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 bg-slate-950/60">
+          <div className="border-t border-amber-500/30 p-3.5 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 bg-slate-950/60 max-h-[45dvh] overflow-y-auto">
               {overdueOrdersToday.map((ord) => (
                 <div
                   key={ord.id}
@@ -1210,9 +1215,8 @@ export default function PlannerBoard({
                   )}
                 </div>
               ))}
-            </div>
-          )}
-        </div>
+          </div>
+        </details>
       )}
 
 
