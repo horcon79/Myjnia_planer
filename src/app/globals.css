@@ -213,3 +213,91 @@ input[type="datetime-local"]::-webkit-calendar-picker-indicator:hover {
     transform: scale(1) translateY(0);
   }
 }
+
+/* Responsive controls and standalone tablet safe areas. */
+body {
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.app-navigation { padding-top: env(safe-area-inset-top); }
+main { min-width: 0; }
+button, a, input, select, textarea { touch-action: manipulation; }
+button:focus-visible, a:focus-visible, [tabindex]:focus-visible {
+  outline: 2px solid #38bdf8;
+  outline-offset: 3px;
+}
+
+.planner-dialog > div {
+  max-height: calc(100dvh - 2rem - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+}
+
+.chat-fab { bottom: calc(1.25rem + env(safe-area-inset-bottom)); }
+.chat-popup { bottom: calc(6rem + env(safe-area-inset-bottom)); }
+
+.planner-touch-card { display: none; }
+
+@media (pointer: coarse) {
+  .planner-touch-card { display: block; }
+  .planner-card-details { display: none; }
+  button, nav a {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  input:not([type="checkbox"]):not([type="radio"]), select, textarea {
+    min-height: 44px;
+    min-width: 0;
+    max-width: 100%;
+    font-size: 16px;
+  }
+  .planner-board [data-order-card] { font-size: 14px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Compact iPad workspace: reduce spacing, not the browser's zoom or tap targets. */
+@media (max-width: 1535px) {
+  body:has(.planner-board) .navigation-brand-row { height: 64px; }
+  body:has(.planner-board) .navigation-logo { width: 40px; height: 40px; }
+  body:has(.planner-board) .navigation-title { font-size: 18px; }
+  body:has(.planner-board) .navigation-tabs { padding-block: 4px; }
+  body:has(.planner-board) .navigation-tabs a { min-height: 44px; padding-block: 4px; }
+  body:has(.planner-board) main { padding: 12px; }
+  .planner-page { height: calc(100dvh - env(safe-area-inset-bottom)); min-height: 0; }
+  .planner-page > main { min-height: 0; overflow-y: auto; }
+  .planner-board { min-height: 0; gap: 12px; }
+  .planner-board > :not(.planner-timeline) { flex-shrink: 0; }
+  .planner-board > * { margin-block: 0; }
+  .planner-toolbar { font-size: 12px; }
+  .planner-controls-toggle { font-size: 12px; }
+  .planner-employee-filter { flex: 1; max-width: 250px; }
+  .planner-toolbar > div:last-child { margin-left: auto; }
+  .planner-timeline { padding: 8px; border-radius: 16px; min-height: 240px; max-height: none; flex: 1 0 240px; }
+  .planner-timeline h4 { font-size: 12px; }
+  .planner-timeline h4 + span { display: none; }
+  .planner-timeline .sticky.top-0 { margin-bottom: 8px; padding-bottom: 4px; }
+  .planner-timeline .sticky.top-0 > div { padding: 6px; border-radius: 10px; }
+}
+@media (max-width: 639px) {
+  body:has(.planner-board) .navigation-title { font-size: 14px; }
+  body:has(.planner-board) main { padding: 8px; }
+  .planner-employee-filter { max-width: none; }
+  .planner-controls-toggle { flex: 1 0 100%; }
+}
+@media (pointer: coarse) and (max-width: 1535px) {
+  .planner-board [data-order-card]:has(.planner-touch-card) { padding: 0; }
+  .planner-touch-card { padding: 4px; }
+  .planner-touch-card > .font-mono { font-size: 12px; line-height: 16px; }
+  .planner-touch-card > .text-xs { font-size: 11px; line-height: 14px; }
+}
+.planner-queue > summary::-webkit-details-marker { display: none; }
