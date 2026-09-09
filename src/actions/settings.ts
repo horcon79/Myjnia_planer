@@ -3,6 +3,7 @@
 import { prisma } from '@/lib/prisma';
 import { revalidatePath } from 'next/cache';
 import { getCurrentUser } from '@/actions/auth';
+import { INTERNAL_SETTING_PREFIX } from '@/lib/session-token';
 
 async function requireAdmin() {
   const user = await getCurrentUser();
@@ -13,7 +14,9 @@ async function requireAdmin() {
 
 export async function getAppSettings() {
   try {
-    const settingsList = await prisma.appSetting.findMany();
+    const settingsList = await prisma.appSetting.findMany({
+      where: { NOT: { key: { startsWith: INTERNAL_SETTING_PREFIX } } },
+    });
     const settingsMap: Record<string, string> = {
       MAX_SIMULTANEOUS_CARS: '3',
       DELIVERY_CAR_WEIGHT: '1.5',
@@ -46,6 +49,7 @@ export async function getAppSettings() {
 
 export async function updateAppSetting(key: string, value: string) {
   try {
+    if (key.toUpperCase().startsWith(INTERNAL_SETTING_PREFIX)) throw new Error('Internal setting');
     await requireAdmin();
     await prisma.appSetting.upsert({
       where: { key },

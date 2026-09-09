@@ -36,6 +36,8 @@ model WashCategory {
   color              String      @default("#6366f1")
   description        String?
   suggestedNotes     String?     // rozdzielone przecinkami lub JSON z szablonami
+  checklistRequired  Boolean     @default(false)
+  checklistMarkdown  String?
   order              Int         @default(0)
   isActive           Boolean     @default(true)
   createdAt          DateTime    @default(now())
@@ -91,9 +93,31 @@ model WashOrder {
   
   startedAt           DateTime?
   completedAt         DateTime?
+  releaseLogs         OrderReleaseLog[]
   
   createdAt           DateTime     @default(now())
   updatedAt           DateTime     @updatedAt
+}
+
+model OrderReleaseLog {
+  id                String    @id @default(cuid())
+  orderId           String?
+  order             WashOrder? @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  orderIdSnapshot   String
+  orderNumber       String
+  licensePlate      String
+  categoryName      String
+  sessionSlug       String
+  sessionName       String
+  sessionRole       String
+  employeeId        String
+  employeeName      String
+  createdAt         DateTime  @default(now())
+  checklistMarkdown String?
+  eventType         String    // CHECKLIST_CONFIRMED | VEHICLE_RELEASED
+
+  @@unique([orderIdSnapshot, eventType])
+  @@index([orderId, createdAt])
 }
 
 model AppSetting {

@@ -45,6 +45,8 @@ import {
 } from 'lucide-react';
 import { format, addDays, subDays } from 'date-fns';
 import { pl } from 'date-fns/locale';
+import ReleaseOrderDialog from './ReleaseOrderDialog';
+import ChecklistMarkdown from '@/components/ChecklistMarkdown';
 
 const compactQuery = '(max-width: 1535px)';
 const subscribeCompact = (notify: () => void) => {
@@ -110,6 +112,7 @@ export default function PlannerBoard({
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [finishConfirmId, setFinishConfirmId] = useState<string | null>(null);
   const [finishNote, setFinishNote] = useState('');
+  const [releaseOrderSnapshot, setReleaseOrderSnapshot] = useState<React.ComponentProps<typeof ReleaseOrderDialog>['order'] | null>(null);
   const [noteEditOrderId, setNoteEditOrderId] = useState<string | null>(null);
   const [noteEditText, setNoteEditText] = useState('');
   const [showOverdueTodayPanel, setShowOverdueTodayPanel] = useState(false); // Szczegóły rozwijane na żądanie
@@ -473,9 +476,10 @@ export default function PlannerBoard({
     fetchDayOrders();
   };
 
-  const handleCompleteOrder = async (orderId: string) => {
-    await updateOrderStatus(orderId, 'COMPLETED');
-    fetchDayOrders();
+  const handleCompleteOrder = (orderId: string) => {
+    if (!canEdit) return;
+    const order = [...orders, ...pastUnfinishedOrders].find(item => item.id === orderId);
+    if (order) setReleaseOrderSnapshot(order);
   };
 
   const handleConfirmDelete = async () => {
@@ -2003,6 +2007,17 @@ export default function PlannerBoard({
       )}
 
       {/* Finish Order Confirmation Modal */}
+      {releaseOrderSnapshot && (
+        <ReleaseOrderDialog
+          order={releaseOrderSnapshot}
+          employees={employees}
+          onClose={() => setReleaseOrderSnapshot(null)}
+          onReleased={() => {
+            setReleaseOrderSnapshot(null);
+            fetchDayOrders();
+          }}
+        />
+      )}
       {finishConfirmId && (
         <div className="planner-dialog fixed inset-0 z-[100] bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-emerald-700 rounded-3xl p-6 sm:p-7 w-full max-w-sm shadow-2xl text-center animate-in fade-in zoom-in duration-150">
@@ -2192,6 +2207,27 @@ export default function PlannerBoard({
             </div>
 
             {/* Express Priority Banner in Modal - Ultra compact */}
+            {editingOrder.releaseLogs?.length > 0 && (
+              <section aria-label="Historia wydania" className="mb-4 space-y-3 rounded-2xl border border-emerald-800 bg-emerald-950/20 p-3">
+                <h4 className="text-sm font-extrabold text-emerald-300">Historia wydania</h4>
+                {editingOrder.releaseLogs.map((log: {
+                  id: string; eventType: string; employeeName: string; sessionName: string;
+                  createdAt: string | Date; checklistMarkdown: string | null;
+                }) => (
+                  <div key={log.id} className="text-xs text-slate-300">
+                    <p className="font-bold text-white">{log.eventType === 'CHECKLIST_CONFIRMED' ? 'Potwierdzono wykonanie checklisty' : 'Pojazd wydany'}</p>
+                    <p>{log.employeeName} · {format(new Date(log.createdAt), 'dd.MM.yyyy HH:mm:ss')}</p>
+                    <p className="text-slate-400">Konto: {log.sessionName}</p>
+                    {log.checklistMarkdown && (
+                      <details className="mt-2">
+                        <summary className="cursor-pointer font-bold text-sky-400">Potwierdzona treść checklisty</summary>
+                        <div className="mt-2"><ChecklistMarkdown markdown={log.checklistMarkdown} /></div>
+                      </details>
+                    )}
+                  </div>
+                ))}
+              </section>
+            )}
             {editingOrder.isPriority && (
               <div className="mb-3 px-3 py-2 rounded-xl bg-gradient-to-r from-amber-950/80 via-slate-900 to-amber-950/70 border border-amber-500/80 text-amber-200 text-xs shadow-md">
                 <div className="flex items-center justify-between gap-1 mb-1">
