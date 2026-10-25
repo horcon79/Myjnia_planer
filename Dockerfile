@@ -29,12 +29,13 @@ ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
 ENV TZ=Europe/Warsaw
 ENV DATABASE_URL=file:/data/myjnia.db
+ENV SUPPORT_DATA_DIR=/app/support
 
-# Użytkownik nie-root; katalog /data na wolumen bazy SQLite
+# Użytkownik nie-root; katalogi /data (SQLite) i /app/support (zgłoszenia JSON) na wolumenach
 RUN addgroup --system --gid 1001 nodejs \
   && adduser --system --uid 1001 nextjs \
-  && mkdir -p /data \
-  && chown -R nextjs:nodejs /data
+  && mkdir -p /data /app/support \
+  && chown -R nextjs:nodejs /data /app/support
 
 # Pełne node_modules (Prisma CLI + klient + tsx do seedu), build i pliki
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules ./node_modules

@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "tsx --test src/lib/planner.test.ts src/lib/session-token.test.ts src/actions/auth.test.ts src/components/ChecklistMarkdown.test.tsx tests/release-actions.test.mjs tests/release-database.test.mjs tests/planner-fixes.test.mjs",
+    "test": "tsx --test src/lib/planner.test.ts src/lib/session-token.test.ts src/actions/auth.test.ts src/components/ChecklistMarkdown.test.tsx tests/release-actions.test.mjs tests/release-database.test.mjs tests/planner-fixes.test.mjs tests/support-store.test.mjs",
     "db:push": "prisma db push",
     "db:seed": "prisma db seed",
     "db:studio": "prisma studio"

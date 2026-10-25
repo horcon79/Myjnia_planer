@@ -40,3 +40,6 @@ Dockerfile
 *.pyc
 zlecenia_sync
 
+# Lokalne zgłoszenia supportu (w kontenerze jest osobny wolumen /app/support)
+support
+

@@ -13,9 +13,13 @@ services:
       - TZ=Europe/Warsaw
       # Baza SQLite przechowywana na trwałym wolumenie
       - DATABASE_URL=file:/data/myjnia.db
+      # Plik JSON ze zgłoszeniami supportu (katalog aplikacji, nie wolumen Dockera)
+      - SUPPORT_DATA_DIR=/app/support
     volumes:
       # Nazwany wolumen - dane przetrwają rebuild/redeploy kontenera
       - myjnia_data:/data
+      # Zgłoszenia błędów i pomysłów - plik ./support/reports.json w katalogu aplikacji
+      - ./support:/app/support
       # Dane zleceń z DMS (plik JSON generowany przez Python/CRON na hoscie).
       # Montowany tylko do odczytu w /app/zlecenia_sync — aplikacja czyta plik na bieżąco.
       - ./zlecenia_sync:/app/zlecenia_sync:ro

@@ -69,6 +69,10 @@ Desktop.ini
 # == dane synchronizacji z DMS (dane osobowe) ==
 /zlecenia_sync
 
+# == lokalne zgłoszenia supportu (JSON w katalogu aplikacji) ==
+/support/*
+!/support/.gitkeep
+
 # == strona promocyjna (osobny projekt) ==
 /landing_page/
 *backlog*

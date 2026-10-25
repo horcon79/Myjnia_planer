@@ -18,6 +18,7 @@ The system allows departments to submit wash requests, wash employees to plan an
 - **Live status screen** — real-time view of vehicles that are ready, in progress, scheduled, or completed.
 - **Dictionaries and configuration** — wash services, departments with PIN codes, employees, and capacity rules such as maximum simultaneous vehicles and working hours.
 - **Reports (admin only)** — number of washes by employee and by department for a selected period, with Excel (`.xls`) export.
+- **Support / feedback** — a permanent top-bar button for reporting bugs, fixes, and ideas. Reports are saved as JSON on a Docker volume and visible to all signed-in users with the author's login, date, and the page they reported from.
 
 ## External system integrations
 
@@ -132,9 +133,10 @@ Environment variables in `docker-compose.yml`:
 | --- | --- | --- |
 | `PORT` | `3000` | Internal application port |
 | `DATABASE_URL` | `file:/data/myjnia.db` | SQLite database location on the `/data` volume |
+| `SUPPORT_DATA_DIR` | `/app/support` | Directory mapped to the application's `./support` folder for `reports.json` |
 | `TZ` | `Europe/Warsaw` | Time zone |
 
-The host port can be changed by editing the mapping `"3000:3000"`, for example to `"8080:3000"`. The data volume can be changed by modifying the `myjnia_data` volume configuration.
+The host port can be changed by editing the mapping `"3000:3000"`, for example to `"8080:3000"`. The data volume can be changed by modifying the `myjnia_data` volume configuration. Support reports are stored in `support/reports.json` inside the application directory (not on a Docker volume), so the file can be copied or inspected directly on the host.
 
 ## Initial seed credentials
 

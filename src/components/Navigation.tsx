@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { SessionUser, logout } from '@/actions/auth';
 import { AnimatedDroplet } from './AnimatedDroplet';
+import SupportButton from './SupportButton';
 
 interface NavigationProps {
   user: SessionUser | null;
@@ -126,7 +127,8 @@ export default function Navigation({ user }: NavigationProps) {
           </nav>
 
           {/* User Profile / Switcher */}
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 sm:gap-3">
+            <SupportButton user={user} />
             {user ? (
               <div className="flex items-center gap-2 bg-slate-800/80 border border-slate-700/60 rounded-xl p-1.5 md:p-2 pr-3">
                 <div 
