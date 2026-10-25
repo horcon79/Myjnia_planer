@@ -74,7 +74,7 @@ export default function SalonDashboard({
   const inProgressOrders = filteredOrders.filter(o => o.status === 'IN_PROGRESS');
   const plannedOrders = filteredOrders.filter(o => o.status === 'PLANNED');
   const completedOrders = filteredOrders.filter(o => o.status === 'COMPLETED');
-  const activeExpressOrders = filteredOrders.filter(o => o.isPriority && o.status !== 'COMPLETED');
+  const activeExpressOrders = filteredOrders.filter(o => o.isPriority && o.status !== 'COMPLETED' && o.status !== 'CANCELLED');
 
   return (
     <div className="space-y-6 flex-1 flex flex-col">

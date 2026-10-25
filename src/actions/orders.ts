@@ -32,84 +32,160 @@ export interface CreateOrderInput {
   dmsVin?: string | null; // VIN z DMS
 }
 
+function getDayRange(dateStr: string) {
+  const targetDate = new Date(dateStr);
+  const startOfDay = new Date(targetDate);
+  startOfDay.setHours(0, 0, 0, 0);
+
+  const endOfDay = new Date(targetDate);
+  endOfDay.setHours(23, 59, 59, 999);
+
+  return { startOfDay, endOfDay };
+}
+
+async function loadBoardForDate(dateStr: string) {
+  const { startOfDay, endOfDay } = getDayRange(dateStr);
+
+  // Zlecenia przypisane bezpośrednio do tego dnia (po planowanym starcie lub terminie gotowości)
+  const orders = await prisma.washOrder.findMany({
+    where: {
+      OR: [
+        {
+          scheduledStartTime: {
+            gte: startOfDay,
+            lte: endOfDay,
+          },
+        },
+        {
+          scheduledStartTime: null,
+          targetReadyTime: {
+            gte: startOfDay,
+            lte: endOfDay,
+          },
+        },
+      ],
+    },
+    include: {
+      department: true,
+      category: true,
+      assignedEmployee: true,
+      releaseLogs: { orderBy: { createdAt: 'desc' } },
+    },
+    orderBy: [
+      { isPriority: 'desc' }, // Priorytetowe na górze
+      { scheduledStartTime: 'asc' },
+      { targetReadyTime: 'asc' },
+    ],
+  });
+
+  // Zlecenia z przeszłości, które nie zostały jeszcze ukończone (Zaległe z wczoraj / poprzednich dni)
+  const pastUnfinishedOrders = await prisma.washOrder.findMany({
+    where: {
+      status: { in: ['PLANNED', 'IN_PROGRESS'] },
+      OR: [
+        {
+          scheduledStartTime: {
+            lt: startOfDay,
+          },
+        },
+        {
+          scheduledStartTime: null,
+          targetReadyTime: {
+            lt: startOfDay,
+          },
+        },
+      ],
+    },
+    include: {
+      department: true,
+      category: true,
+      assignedEmployee: true,
+      releaseLogs: { orderBy: { createdAt: 'desc' } },
+    },
+    orderBy: [
+      { isPriority: 'desc' },
+      { targetReadyTime: 'asc' },
+    ],
+  });
+
+  return { orders, pastUnfinishedOrders };
+}
+
 export async function getOrdersForDate(dateStr: string) {
   try {
     if (!await getCurrentUser()) {
       return { success: false, error: 'Zaloguj się, aby wyświetlić zlecenia i historię wydania.', orders: [], pastUnfinishedOrders: [] };
     }
-    const targetDate = new Date(dateStr);
-    const startOfDay = new Date(targetDate);
-    startOfDay.setHours(0, 0, 0, 0);
-
-    const endOfDay = new Date(targetDate);
-    endOfDay.setHours(23, 59, 59, 999);
-
-    // Zlecenia przypisane bezpośrednio do tego dnia (po planowanym starcie lub terminie gotowości)
-    const orders = await prisma.washOrder.findMany({
-      where: {
-        OR: [
-          {
-            scheduledStartTime: {
-              gte: startOfDay,
-              lte: endOfDay,
-            },
-          },
-          {
-            scheduledStartTime: null,
-            targetReadyTime: {
-              gte: startOfDay,
-              lte: endOfDay,
-            },
-          },
-        ],
-      },
-      include: {
-        department: true,
-        category: true,
-        assignedEmployee: true,
-        releaseLogs: { orderBy: { createdAt: 'desc' } },
-      },
-      orderBy: [
-        { isPriority: 'desc' }, // Priorytetowe na górze
-        { scheduledStartTime: 'asc' },
-        { targetReadyTime: 'asc' },
-      ],
-    });
-
-    // Zlecenia z przeszłości, które nie zostały jeszcze ukończone (Zaległe z wczoraj / poprzednich dni)
-    const pastUnfinishedOrders = await prisma.washOrder.findMany({
-      where: {
-        status: { in: ['PLANNED', 'IN_PROGRESS'] },
-        OR: [
-          {
-            scheduledStartTime: {
-              lt: startOfDay,
-            },
-          },
-          {
-            scheduledStartTime: null,
-            targetReadyTime: {
-              lt: startOfDay,
-            },
-          },
-        ],
-      },
-      include: {
-        department: true,
-        category: true,
-        assignedEmployee: true,
-        releaseLogs: { orderBy: { createdAt: 'desc' } },
-      },
-      orderBy: [
-        { isPriority: 'desc' },
-        { targetReadyTime: 'asc' },
-      ],
-    });
-
-    return { success: true, orders, pastUnfinishedOrders };
+    const board = await loadBoardForDate(dateStr);
+    return { success: true, ...board };
   } catch (error) {
     console.error('getOrdersForDate error:', error);
     return { success: false, error: 'Nie udało się pobrać zleceń.', orders: [], pastUnfinishedOrders: [] };
+  }
+}
+
+/**
+ * Snapshot planera: zlecenia dnia + zaległe + obsada zmiany + auta gotowe do wydania poza grafikiem.
+ * Jeden round-trip dla pollingu 6 s, dzięki czemu obsada jest widoczna na wszystkich urządzeniach.
+ */
+export async function getPlannerSnapshot(dateStr: string) {
+  try {
+    if (!await getCurrentUser()) {
+      return {
+        success: false,
+        error: 'Zaloguj się, aby wyświetlić planer.',
+        orders: [],
+        pastUnfinishedOrders: [],
+        roster: [],
+        pendingReleases: [],
+      };
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+      return {
+        success: false,
+        error: 'Nieprawidłowa data.',
+        orders: [],
+        pastUnfinishedOrders: [],
+        roster: [],
+        pendingReleases: [],
+      };
+    }
+
+    const [board, roster, pendingReleases] = await Promise.all([
+      loadBoardForDate(dateStr),
+      prisma.shiftRoster.findMany({
+        where: { dateKey: dateStr },
+        orderBy: { startedAt: 'asc' },
+      }),
+      // Wszystkie auta gotowe do odbioru - klient odfiltruje te, które są już widoczne na grafiku.
+      prisma.washOrder.findMany({
+        where: { status: 'READY' },
+        include: { department: true, category: true, assignedEmployee: true },
+        orderBy: { targetReadyTime: 'asc' },
+        take: 100,
+      }),
+    ]);
+
+    return {
+      success: true,
+      ...board,
+      roster: roster.map(entry => ({
+        employeeId: entry.employeeId,
+        startedAt: entry.startedAt.toISOString(),
+        endedAt: entry.endedAt ? entry.endedAt.toISOString() : null,
+      })),
+      pendingReleases,
+    };
+  } catch (error) {
+    console.error('getPlannerSnapshot error:', error);
+    return {
+      success: false,
+      error: 'Nie udało się pobrać planera.',
+      orders: [],
+      pastUnfinishedOrders: [],
+      roster: [],
+      pendingReleases: [],
+    };
   }
 }
 
@@ -208,8 +284,23 @@ export async function updateOrderStatus(
     if (newStatus === 'COMPLETED') {
       return { success: false, error: 'Wydaj pojazd przyciskiem Wydane w planerze i potwierdź wymagane czynności.' };
     }
-    if (!['PLANNED', 'IN_PROGRESS', 'READY', 'CANCELLED'].includes(newStatus)) {
+    if (newStatus === 'CANCELLED') {
+      return { success: false, error: 'Anuluj zlecenie przyciskiem Anuluj - zapisujemy wtedy powód i historię.' };
+    }
+    if (!['PLANNED', 'IN_PROGRESS', 'READY'].includes(newStatus)) {
       return { success: false, error: 'Nieprawidłowy status zlecenia.' };
+    }
+
+    const current = await prisma.washOrder.findUnique({
+      where: { id: orderId },
+      select: { status: true },
+    });
+    if (!current) return { success: false, error: 'Nie znaleziono zlecenia.' };
+    if (current.status === 'CANCELLED') {
+      return { success: false, error: 'Zlecenie zostało anulowane.' };
+    }
+    if (current.status === 'COMPLETED') {
+      return { success: false, error: 'Zlecenie zostało już wydane.' };
     }
 
     const dataToUpdate: any = { status: newStatus };
@@ -238,6 +329,74 @@ export async function updateOrderStatus(
   } catch (error) {
     console.error('updateOrderStatus error:', error);
     return { success: false, error: 'Nie udało się zaktualizować statusu.' };
+  }
+}
+
+export async function cancelOrder(orderId: string, input?: { reason?: string }) {
+  try {
+    const user = await getCurrentUser();
+    if (!user) {
+      return { success: false, error: 'Zaloguj się, aby anulować zlecenie.' };
+    }
+    if (typeof orderId !== 'string' || !orderId.trim()) {
+      return { success: false, error: 'Nieprawidłowe zlecenie.' };
+    }
+    const reason = (input?.reason || '').trim().slice(0, 500);
+
+    const order = await prisma.washOrder.findUnique({
+      where: { id: orderId },
+      include: { department: true },
+    });
+    if (!order) return { success: false, error: 'Nie znaleziono zlecenia.' };
+
+    // Idempotencja: powtórne anulowanie nie jest błędem.
+    if (order.status === 'CANCELLED') {
+      return { success: true, order };
+    }
+    if (order.status === 'COMPLETED') {
+      return { success: false, error: 'Wydanego zlecenia nie można anulować.' };
+    }
+
+    if (user.role === 'DEPARTMENT') {
+      if (order.department.slug !== user.slug) {
+        return { success: false, error: 'Możesz anulować tylko zlecenia własnego działu.' };
+      }
+      if (order.status !== 'PLANNED') {
+        return { success: false, error: 'Zlecenie jest już w realizacji - anulowanie zgłoś do myjni.' };
+      }
+    } else if (user.role !== 'WASHER' && user.role !== 'ADMIN') {
+      return { success: false, error: 'Brak uprawnień do anulowania zlecenia.' };
+    }
+
+    // Warunkowy zapis chroni przed wyścigiem z wydaniem pojazdu (READY -> COMPLETED).
+    const changed = await prisma.washOrder.updateMany({
+      where: { id: orderId, status: order.status },
+      data: {
+        status: 'CANCELLED',
+        cancelledAt: new Date(),
+        cancelledBy: `${user.name} (${user.code})`,
+        cancelledFromStatus: order.status,
+        cancelReason: reason || null,
+      },
+    });
+
+    if (changed.count !== 1) {
+      return { success: false, error: 'Zlecenie uległo zmianie. Odśwież widok i spróbuj ponownie.' };
+    }
+
+    const updated = await prisma.washOrder.findUniqueOrThrow({
+      where: { id: orderId },
+      include: { department: true, category: true, assignedEmployee: true },
+    });
+
+    revalidatePath('/planner');
+    revalidatePath('/order');
+    revalidatePath('/summary');
+
+    return { success: true, order: updated };
+  } catch (error) {
+    console.error('cancelOrder error:', error);
+    return { success: false, error: 'Nie udało się anulować zlecenia.' };
   }
 }
 
@@ -339,9 +498,27 @@ export async function scheduleOrder(
     });
 
     if (!current) return { success: false, error: 'Nie znaleziono zlecenia.' };
+    if (current.status === 'CANCELLED') {
+      return { success: false, error: 'Zlecenie zostało anulowane - nie można go planować.' };
+    }
+    if (current.status === 'COMPLETED') {
+      return { success: false, error: 'Zlecenie zostało już wydane.' };
+    }
 
-    const duration = data.durationMin ?? current.durationMin;
     const start = new Date(data.scheduledStartTime);
+    if (Number.isNaN(start.getTime())) {
+      return { success: false, error: 'Nieprawidłowa data lub godzina rozpoczęcia.' };
+    }
+    const duration = data.durationMin ?? current.durationMin;
+    if (!Number.isFinite(duration) || duration < 5 || duration > 600) {
+      return { success: false, error: 'Czas trwania musi mieścić się w zakresie 5-600 minut.' };
+    }
+    if (data.assignedEmployeeId) {
+      const employee = await prisma.employee.findUnique({ where: { id: data.assignedEmployeeId } });
+      if (!employee?.isActive) {
+        return { success: false, error: 'Wybierz aktywnego pracownika myjni.' };
+      }
+    }
     const end = new Date(start.getTime() + duration * 60000);
 
     const updated = await prisma.washOrder.update({
@@ -405,6 +582,18 @@ export async function finishOrderWithNote(orderId: string, note?: string) {
   try {
     const auth = await checkPlannerPermission();
     if (!auth.allowed) return { success: false, error: auth.error };
+
+    const current = await prisma.washOrder.findUnique({
+      where: { id: orderId },
+      select: { status: true },
+    });
+    if (!current) return { success: false, error: 'Nie znaleziono zlecenia.' };
+    if (current.status === 'CANCELLED') {
+      return { success: false, error: 'Zlecenie zostało anulowane.' };
+    }
+    if (current.status === 'COMPLETED') {
+      return { success: false, error: 'Zlecenie zostało już wydane.' };
+    }
 
     const trimmed = note?.trim();
     const dataToUpdate: any = {

@@ -56,6 +56,22 @@ model Employee {
   updatedAt   DateTime    @updatedAt
   orders      WashOrder[]
   chatMessages ChatMessage[]
+  shiftEntries ShiftRoster[]
+}
+
+// Obsada zmiany myjni - wspolna dla wszystkich urzadzen (wczesniej localStorage tabletu).
+model ShiftRoster {
+  id         String    @id @default(cuid())
+  dateKey    String    // "yyyy-MM-dd" w strefie Europe/Warsaw
+  employeeId String
+  employee   Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  startedAt  DateTime  @default(now())
+  endedAt    DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@unique([dateKey, employeeId])
+  @@index([dateKey])
 }
 
 model WashOrder {
@@ -93,6 +109,10 @@ model WashOrder {
   
   startedAt           DateTime?
   completedAt         DateTime?
+  cancelledAt         DateTime?
+  cancelledBy         String?      // "Imie Nazwisko ( Kod )" - audyt anulowania
+  cancelledFromStatus String?      // status sprzed anulowania
+  cancelReason        String?
   releaseLogs         OrderReleaseLog[]
   
   createdAt           DateTime     @default(now())

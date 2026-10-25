@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { SessionUser } from '@/actions/auth';
-import { createOrder, getOrdersForDate } from '@/actions/orders';
+import { createOrder, getOrdersForDate, cancelOrder } from '@/actions/orders';
 import { searchDmsVehicles, getDmsStatus, refreshDmsCache } from '@/actions/dms';
 import type { DmsSearchResult, DmsServiceStatus } from '@/lib/dms-types';
 import {
@@ -135,6 +135,11 @@ export default function OrderFormAndList({
   const [filterDept, setFilterDept] = useState<string>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
   const [showCompleted, setShowCompleted] = useState(false); // Hide completed by default!
+  const [showCancelled, setShowCancelled] = useState(false); // Hide cancelled by default
+  const [cancelTarget, setCancelTarget] = useState<{ id: string; licensePlate: string; status: string } | null>(null);
+  const [cancelReason, setCancelReason] = useState('');
+  const [cancelError, setCancelError] = useState('');
+  const [cancelPending, setCancelPending] = useState(false);
 
   const currentCat = categories.find(c => c.id === selectedCatId) || categories[0];
   const currentDeptObj = departments.find(d => d.id === selectedDeptId);
@@ -282,7 +287,7 @@ export default function OrderFormAndList({
 
   // Workload calculations on the selected ready date
   const workloadStats = useMemo(() => {
-    const activeOrdersOnDay = orders.filter(o => o.status !== 'COMPLETED');
+    const activeOrdersOnDay = orders.filter(o => o.status !== 'COMPLETED' && o.status !== 'CANCELLED');
     const totalMinutes = activeOrdersOnDay.reduce((acc, o) => acc + (o.durationMin || 30), 0);
     // Capacity with 3 bays: effective throughput
     const effectiveHours = (totalMinutes / 3 / 60).toFixed(1);
@@ -417,12 +422,15 @@ export default function OrderFormAndList({
     }
   };
 
-  // Filtered orders: COMPLETED orders disappear by default unless showCompleted is checked
+  // Filtered orders: COMPLETED/CANCELLED orders disappear by default unless their toggle is checked
   const completedCount = orders.filter(o => o.status === 'COMPLETED').length;
+  const cancelledCount = orders.filter(o => o.status === 'CANCELLED').length;
 
   const filteredOrders = orders.filter(o => {
     // Hide completed / delivered cars by default
     if (o.status === 'COMPLETED' && !showCompleted) return false;
+    // Hide cancelled cars by default
+    if (o.status === 'CANCELLED' && !showCancelled) return false;
 
     if (filterDept !== 'ALL' && o.departmentId !== filterDept) return false;
     if (searchQuery.trim()) {
@@ -459,6 +467,13 @@ export default function OrderFormAndList({
             WYDANE / ZREALIZOWANE
           </span>
         );
+      case 'CANCELLED':
+        return (
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-rose-950/60 text-rose-300 border border-rose-500/40 text-xs font-bold">
+            <X className="w-3 h-3" />
+            ANULOWANE
+          </span>
+        );
       default: {
         const isAssigned = Boolean(order.assignedEmployee?.name || order.assignedEmployeeId || order.scheduledStartTime);
         if (isAssigned) {
@@ -476,6 +491,36 @@ export default function OrderFormAndList({
           </span>
         );
       }
+    }
+  };
+
+  const canCancelOrder = (order: any) => {
+    if (!currentUser) return false;
+    if (order.status === 'COMPLETED' || order.status === 'CANCELLED') return false;
+    if (currentUser.role === 'WASHER' || currentUser.role === 'ADMIN') return true;
+    if (currentUser.role === 'DEPARTMENT') {
+      return order.department?.slug === currentUser.slug && order.status === 'PLANNED';
+    }
+    return false;
+  };
+
+  const handleConfirmCancel = async () => {
+    if (!cancelTarget || cancelPending) return;
+    setCancelPending(true);
+    setCancelError('');
+    try {
+      const res = await cancelOrder(cancelTarget.id, { reason: cancelReason });
+      if (!res.success) {
+        setCancelError(res.error || 'Nie udało się anulować zlecenia.');
+        return;
+      }
+      setCancelTarget(null);
+      setCancelReason('');
+      await loadOrders();
+    } catch {
+      setCancelError('Błąd połączenia. Spróbuj ponownie.');
+    } finally {
+      setCancelPending(false);
     }
   };
 
@@ -1224,6 +1269,21 @@ export default function OrderFormAndList({
                   <span>{showCompleted ? 'Ukryj wydane' : `Wydane (${completedCount})`}</span>
                 </button>
               )}
+
+              {/* Toggle to show/hide cancelled orders */}
+              {cancelledCount > 0 && (
+                <button
+                  onClick={() => setShowCancelled(!showCancelled)}
+                  className={`px-2 py-1 rounded-lg text-xs font-semibold flex items-center gap-1 transition-colors ${showCancelled
+                    ? 'bg-rose-900/60 text-rose-100'
+                    : 'bg-slate-800/80 text-slate-400 hover:text-slate-200'
+                    }`}
+                  title="Anulowane auta są domyślnie ukryte"
+                >
+                  {showCancelled ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                  <span>{showCancelled ? 'Ukryj anulowane' : `Anulowane (${cancelledCount})`}</span>
+                </button>
+              )}
             </div>
 
             <div className="relative w-full sm:w-52">
@@ -1345,14 +1405,29 @@ export default function OrderFormAndList({
                         )}
 
                         {/* Status Badge */}
-                        <div className="flex-shrink-0 scale-90 sm:scale-95 origin-right">
-                          {getStatusBadge(order)}
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                          <div className="scale-90 sm:scale-95 origin-right">
+                            {getStatusBadge(order)}
+                          </div>
+                          {canCancelOrder(order) && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setCancelError('');
+                                setCancelReason('');
+                                setCancelTarget(order);
+                              }}
+                              className="rounded-lg border border-rose-700/50 bg-rose-950/40 px-2 py-1 text-[10px] font-bold text-rose-300 hover:bg-rose-900/50"
+                            >
+                              Anuluj
+                            </button>
+                          )}
                         </div>
                       </div>
                     </div>
 
                     {/* Compact Details Subline: Notes / Express Audit / Delay Warning / Reporter */}
-                    {(order.isPriority || order.notes || hasDelay) && (
+                    {(order.isPriority || order.notes || hasDelay || order.status === 'CANCELLED') && (
                       <div className="mt-2 pt-1.5 border-t border-slate-800/60 flex flex-wrap items-center gap-2 text-[10px]">
                         {/* Express Audit Log */}
                         {order.isPriority && (
@@ -1369,6 +1444,15 @@ export default function OrderFormAndList({
                           <span className="text-rose-300 flex items-center gap-1 bg-rose-950/60 px-1.5 py-0.5 rounded border border-rose-500/40 font-bold">
                             <AlertTriangle className="w-3 h-3 text-rose-400 flex-shrink-0" />
                             <span>Koniec mycia po terminie gotowości!</span>
+                          </span>
+                        )}
+
+                        {/* Cancellation audit */}
+                        {order.status === 'CANCELLED' && (
+                          <span className="text-rose-300 flex items-center gap-1 bg-rose-950/60 px-1.5 py-0.5 rounded border border-rose-500/40">
+                            <X className="w-3 h-3 text-rose-400 flex-shrink-0" />
+                            <span><strong>Anulował:</strong> {order.cancelledBy || '—'}</span>
+                            {order.cancelReason && <span className="italic">„{order.cancelReason}”</span>}
                           </span>
                         )}
 
@@ -1395,6 +1479,61 @@ export default function OrderFormAndList({
         </div>
 
       </div>
+
+      {/* Cancellation confirmation (departments: own PLANNED only; wash/admin: any not completed) */}
+      {cancelTarget && (
+        <div className="fixed inset-0 z-[100] bg-slate-950/85 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-rose-700 rounded-3xl p-6 sm:p-7 w-full max-w-md shadow-2xl space-y-4">
+            <div className="text-center">
+              <div className="w-14 h-14 rounded-2xl bg-rose-500/10 text-rose-400 flex items-center justify-center mx-auto mb-3 text-2xl">
+                <AlertTriangle className="w-7 h-7" />
+              </div>
+              <h3 className="font-extrabold text-lg text-white">Anulować zlecenie?</h3>
+              <p className="text-sm font-bold text-rose-300 mt-1 font-mono">{cancelTarget.licensePlate}</p>
+              <p className="text-xs text-slate-400 mt-1">
+                Zlecenie zostanie oznaczone jako ANULOWANE i zniknie z grafiku myjni. Historia pozostanie w systemie.
+              </p>
+            </div>
+
+            <label className="block text-left">
+              <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">Powód anulowania (opcjonalnie)</span>
+              <textarea
+                value={cancelReason}
+                onChange={(e) => setCancelReason(e.target.value)}
+                maxLength={500}
+                rows={2}
+                placeholder="np. Wydanie klienta odwołane, auto nie wymaga mycia"
+                className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white text-xs placeholder:text-slate-600 focus:outline-none focus:border-rose-500 resize-none"
+              />
+            </label>
+
+            {cancelError && (
+              <p role="alert" className="rounded-xl border border-rose-700 bg-rose-950/50 p-3 text-xs font-bold text-rose-200">
+                {cancelError}
+              </p>
+            )}
+
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                disabled={cancelPending}
+                onClick={() => setCancelTarget(null)}
+                className="flex-1 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs disabled:opacity-50"
+              >
+                Wróć
+              </button>
+              <button
+                type="button"
+                disabled={cancelPending}
+                onClick={handleConfirmCancel}
+                className="flex-1 py-3 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-black text-xs shadow-lg shadow-rose-600/30 disabled:opacity-50"
+              >
+                {cancelPending ? 'Anulowanie...' : 'Tak, anuluj'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );
