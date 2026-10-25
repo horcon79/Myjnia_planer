@@ -56,7 +56,7 @@ async function main() {
   const categories = [
     {
       name: 'Mycie standardowe',
-      defaultDurationMin: 30,
+      defaultDurationMin: 40,
       color: '#3b82f6',
       description: 'Zewnątrz + mycie progów + suszenie',
       suggestedNotes: 'Płukanie ciśnieniowe, mycie szyb z zewnątrz',
@@ -64,7 +64,7 @@ async function main() {
     },
     {
       name: 'Przygotowanie nowego auta do wydania',
-      defaultDurationMin: 150,
+      defaultDurationMin: 120,
       color: '#8b5cf6',
       description: 'Kompleksowe przygotowanie pod klienta salonu',
       suggestedNotes: 'Odkurzanie, mycie szyb bez smug, czyszczenie tworzyw, nabłyszczenie opon, perfumowanie',
@@ -80,7 +80,7 @@ async function main() {
     },
     {
       name: 'Mycie serwisowe / szybkie',
-      defaultDurationMin: 20,
+      defaultDurationMin: 25,
       color: '#10b981',
       description: 'Przeglądowe mycie po naprawie mechanicznej',
       suggestedNotes: 'Płukanie nadkoli, mycie z zewnątrz',
@@ -88,7 +88,7 @@ async function main() {
     },
     {
       name: 'Kompleksowe czyszczenie wnętrza + pranie',
-      defaultDurationMin: 90,
+      defaultDurationMin: 150,
       color: '#ec4899',
       description: 'Ekstrakcyjne pranie tapicerki i impregnacja plastików',
       suggestedNotes: 'Pranie foteli przednich i kanapy, neutralizacja zapachów',

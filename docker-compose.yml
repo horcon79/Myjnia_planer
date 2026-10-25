@@ -4,7 +4,7 @@ services:
       context: .
       dockerfile: Dockerfile
     image: myjnia-planer:latest
-    container_name: myjnia-planer
+    container_name: bielice-myjnia-planer
     restart: unless-stopped
     ports:
       - "3050:3000"

@@ -18,6 +18,9 @@ fi
 echo "==> Aplikowanie schematu bazy danych (prisma db push)..."
 "$PRISMA_BIN" db push --skip-generate
 
+echo "==> Włączanie trybu WAL (współbieżność odczyt/zapis)..."
+node ./scripts/enable-wal.js || echo "==> UWAGA: WAL nie został włączony - aplikacja startuje w trybie domyślnym."
+
 if [ "$NEED_SEED" = "true" ]; then
   echo "==> Inicjalizacja nowej bazy danych..."
   npm run db:seed || true

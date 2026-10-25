@@ -3,14 +3,17 @@
 import React, { useState, useEffect, useMemo, useRef, useSyncExternalStore } from 'react';
 import { SessionUser } from '@/actions/auth';
 import { 
-  getOrdersForDate, 
+  getPlannerSnapshot,
   updateOrderStatus, 
   scheduleOrder, 
   deleteOrder,
   createOrder,
   finishOrderWithNote,
-  addOrderNote
+  addOrderNote,
+  cancelOrder
 } from '@/actions/orders';
+import { setShiftRoster } from '@/actions/shifts';
+import { isQueueOrder, isActiveShiftEntry } from '@/lib/planner';
 import { 
   Calendar, 
   ChevronLeft, 
@@ -57,12 +60,25 @@ const subscribeCompact = (notify: () => void) => {
 const getCompactSnapshot = () => window.matchMedia(compactQuery).matches;
 const getServerCompactSnapshot = () => false;
 
+interface ShiftEntry {
+  employeeId: string;
+  startedAt: string;
+  endedAt: string | null;
+}
+
+interface CancelTarget {
+  id: string;
+  licensePlate: string;
+  status: string;
+}
+
 interface PlannerBoardProps {
   currentUser: SessionUser | null;
   departments: any[];
   categories: any[];
   employees: any[];
   settings: Record<string, string>;
+  initialRoster?: ShiftEntry[];
 }
 
 export default function PlannerBoard({
@@ -71,6 +87,7 @@ export default function PlannerBoard({
   categories,
   employees,
   settings,
+  initialRoster,
 }: PlannerBoardProps) {
   // Uprawnienia: tylko MYJNIA oraz KIEROWNIK/ADMIN mogą dokonywać zmian w planerze
   const canEdit = currentUser?.role === 'WASHER' || currentUser?.role === 'ADMIN';
@@ -86,18 +103,33 @@ export default function PlannerBoard({
   const [pastUnfinishedOrders, setPastUnfinishedOrders] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Active employees on shift (persisted in localStorage / session)
-  const [activeEmpIds, setActiveEmpIds] = useState<string[]>([]);
+  // Wspólna obsada zmiany z bazy (widoczna dla myjni i wszystkich działów).
+  const [roster, setRoster] = useState<ShiftEntry[]>(initialRoster || []);
   // Daily shift start modal
   const [showShiftStartModal, setShowShiftStartModal] = useState(false);
   const [shiftSelectionIds, setShiftSelectionIds] = useState<string[]>([]);
 
-  // Shift start timestamps (ms epoch) per employee – used for auto-deactivation & elapsed time
-  const [shiftStartTimes, setShiftStartTimes] = useState<Record<string, number>>({});
   // Confirmation modal for starting/ending a shift (prevents accidental taps)
   const [shiftConfirmEmp, setShiftConfirmEmp] = useState<{ id: string; action: 'start' | 'end' } | null>(null);
+  const [rosterError, setRosterError] = useState('');
   // Tick for refreshing elapsed-time labels
   const [nowTick, setNowTick] = useState(0);
+  const shiftPromptedRef = useRef(false);
+
+  // Auta gotowe do wydania, których nie ma na widocznym grafiku (np. z poprzednich dni).
+  const [pendingReleases, setPendingReleases] = useState<any[]>([]);
+
+  // Anulowanie zlecenia (z powodem i audytem)
+  const [cancelTarget, setCancelTarget] = useState<CancelTarget | null>(null);
+  const [cancelReason, setCancelReason] = useState('');
+  const [cancelError, setCancelError] = useState('');
+  const [cancelPending, setCancelPending] = useState(false);
+
+  // Komunikaty błędów akcji (zamiast cichych niepowodzeń)
+  const [actionError, setActionError] = useState<string | null>(null);
+  const actionErrorTimer = useRef<any>(null);
+  const [modalError, setModalError] = useState('');
+  const [quickAddError, setQuickAddError] = useState('');
 
   // Modals and confirmation state
   const [editingOrder, setEditingOrder] = useState<any | null>(null);
@@ -142,13 +174,54 @@ export default function PlannerBoard({
   const SLOT_GAP = 8;
   const SLOT_STEP = SLOT_HEIGHT + SLOT_GAP;
 
-  // Shift length limits: standard 8h shift, auto-deactivate after 9h
+  // Shift length limits: standard 8h shift, obsada wygasa po 9h (SHIFT_MAX_MS w lib/planner)
   const STANDARD_SHIFT_MS = 8 * 60 * 60 * 1000;
-  const AUTO_DEACTIVATE_MS = 9 * 60 * 60 * 1000;
+
+  const clockNow = nowTick || Date.now();
+  const todayKey = format(new Date(), 'yyyy-MM-dd');
+
+  const eligibleRoster = useMemo(
+    () => roster.filter(entry => employees.some(e => e.id === entry.employeeId)),
+    [roster, employees]
+  );
+
+  // Obsada aktywna: zakończone wpisy odpadają, a 9-godzinne wygaśnięcie liczy się tylko dla dnia dzisiejszego.
+  const activeEmpIds = useMemo(() => {
+    const isCurrentDay = currentDate === todayKey;
+    return eligibleRoster
+      .filter(entry => (isCurrentDay ? isActiveShiftEntry(entry, clockNow) : !entry.endedAt))
+      .map(entry => entry.employeeId);
+  }, [eligibleRoster, clockNow, currentDate, todayKey]);
+
+  const shiftStartTimes = useMemo(() => {
+    const map: Record<string, number> = {};
+    eligibleRoster.forEach(entry => {
+      map[entry.employeeId] = new Date(entry.startedAt).getTime();
+    });
+    return map;
+  }, [eligibleRoster]);
+
+  const showActionError = (message: string) => {
+    setActionError(message);
+    if (actionErrorTimer.current) clearTimeout(actionErrorTimer.current);
+    actionErrorTimer.current = setTimeout(() => setActionError(null), 6000);
+  };
+
+  const persistRoster = async (nextIds: string[]) => {
+    setRosterError('');
+    const res = await setShiftRoster(currentDate, nextIds);
+    if (!res.success) {
+      setRosterError(res.error || 'Nie udało się zapisać obsady zmiany.');
+      return false;
+    }
+    setRoster(res.roster || []);
+    return true;
+  };
 
   // Sync modal state whenever editingOrder changes
   useEffect(() => {
     if (editingOrder) {
+      setModalError('');
       const d = editingOrder.scheduledStartTime
         ? format(new Date(editingOrder.scheduledStartTime), 'yyyy-MM-dd')
         : currentDate;
@@ -216,13 +289,25 @@ export default function PlannerBoard({
     return `${h}:${m}`;
   };
 
-  // Polling data
+  // Polling data (zlecenia + obsada zmiany + auta do wydania w jednym zapytaniu)
   const fetchDayOrders = async () => {
     try {
-      const res = await getOrdersForDate(currentDate);
+      const res = await getPlannerSnapshot(currentDate);
       if (res.success) {
         if (res.orders) setOrders(res.orders);
         if (res.pastUnfinishedOrders) setPastUnfinishedOrders(res.pastUnfinishedOrders);
+        if (Array.isArray(res.roster)) setRoster(res.roster);
+        if (Array.isArray(res.pendingReleases)) setPendingReleases(res.pendingReleases);
+
+        // Pierwsze wejście w dniu bez rozpoczętej zmiany - zapytaj o obsadę (tylko myjnia/kierownik).
+        if (canEdit && !shiftPromptedRef.current && currentDate === format(new Date(), 'yyyy-MM-dd')
+            && Array.isArray(res.roster) && res.roster.length === 0) {
+          shiftPromptedRef.current = true;
+          setShiftSelectionIds([]);
+          setShowShiftStartModal(true);
+        }
+      } else if (res.error) {
+        console.warn('getPlannerSnapshot:', res.error);
       }
     } catch (e) {
       console.error(e);
@@ -239,40 +324,6 @@ export default function PlannerBoard({
 
   // Auto-scroll to current hour when date is today
   const isToday = currentDate === format(new Date(), 'yyyy-MM-dd');
-
-  // Load saved shift staff on mount / date change (per-day roster)
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem(`myjnia_shift_employees_${currentDate}`);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) {
-          const validIds = parsed.filter((id: string) => employees.some(e => e.id === id));
-          setActiveEmpIds(validIds);
-        }
-      } else {
-        // No shift configured for this day yet → default: no one selected
-        setActiveEmpIds([]);
-        // If viewing today and no shift has been chosen, prompt shift start modal
-        if (isToday && canEdit) {
-          setShiftSelectionIds([]);
-          setShowShiftStartModal(true);
-        }
-      }
-
-      const savedTimes = localStorage.getItem(`myjnia_shift_times_${currentDate}`);
-      if (savedTimes) {
-        const parsedTimes = JSON.parse(savedTimes);
-        if (parsedTimes && typeof parsedTimes === 'object') {
-          setShiftStartTimes(parsedTimes);
-        }
-      } else {
-        setShiftStartTimes({});
-      }
-    } catch (e) {
-      console.error(e);
-    }
-  }, [employees, currentDate, isToday, canEdit]);
 
   const scrollToCurrentTime = (smooth: boolean = true) => {
     if (!isToday) return;
@@ -300,98 +351,32 @@ export default function PlannerBoard({
     }
   }, [isLoading, currentDate]);
 
+  // Po zmianie dnia pozwól ponownie zapytać o obsadę (raz na dzień).
+  useEffect(() => {
+    shiftPromptedRef.current = false;
+  }, [currentDate]);
+
   // Refresh "elapsed time" labels every 60s
   useEffect(() => {
     const interval = setInterval(() => setNowTick(Date.now()), 60000);
     return () => clearInterval(interval);
   }, []);
 
-  // Auto-deactivate employees whose shift has exceeded AUTO_DEACTIVATE_MS (9h)
-  useEffect(() => {
-    if (!isToday) return; // Auto-wygaszanie działa tylko dla dnia dzisiejszego
-
-    const checkAutoDeactivate = () => {
-      const now = Date.now();
-      setActiveEmpIds(prev => {
-        const stillValid = prev.filter(id => {
-          const start = shiftStartTimes[id];
-          if (!start) return true;
-          return now - start < AUTO_DEACTIVATE_MS;
-        });
-        if (stillValid.length !== prev.length) {
-          const nextTimes: Record<string, number> = {};
-          stillValid.forEach(id => {
-            if (shiftStartTimes[id]) nextTimes[id] = shiftStartTimes[id];
-          });
-          setShiftStartTimes(nextTimes);
-          try {
-            localStorage.setItem(`myjnia_shift_employees_${currentDate}`, JSON.stringify(stillValid));
-            localStorage.setItem(`myjnia_shift_times_${currentDate}`, JSON.stringify(nextTimes));
-          } catch (e) {
-            console.error(e);
-          }
-          return stillValid;
-        }
-        return prev;
-      });
-    };
-
-    const interval = setInterval(checkAutoDeactivate, 60000);
-    checkAutoDeactivate();
-    return () => clearInterval(interval);
-  }, [shiftStartTimes, currentDate, isToday]);
-
   // Click on employee chip → ask for confirmation (prevents accidental taps)
   const requestShiftChange = (empId: string, currentlyActive: boolean) => {
     setShiftConfirmEmp({ id: empId, action: currentlyActive ? 'end' : 'start' });
   };
 
-  // Confirm start/end of shift (persisted per day)
-  const confirmShiftChange = () => {
+  // Confirm start/end of shift (wspólny zapis w bazie)
+  const confirmShiftChange = async () => {
     if (!shiftConfirmEmp) return;
     const { id, action } = shiftConfirmEmp;
 
-    setActiveEmpIds(prev => {
-      let next: string[];
-      if (action === 'start') {
-        next = prev.includes(id) ? prev : [...prev, id];
-      } else {
-        next = prev.filter(eid => eid !== id);
-      }
-      try {
-        localStorage.setItem(`myjnia_shift_employees_${currentDate}`, JSON.stringify(next));
-      } catch (e) {
-        console.error(e);
-      }
-      return next;
-    });
+    const nextIds = action === 'start'
+      ? Array.from(new Set([...activeEmpIds, id]))
+      : activeEmpIds.filter(eid => eid !== id);
 
-    // Czas pracy naliczamy i zapisujemy WYŁĄCZNIE dla dnia dzisiejszego (isToday)
-    if (isToday) {
-      if (action === 'start') {
-        setShiftStartTimes(prev => {
-          const next = { ...prev, [id]: Date.now() };
-          try {
-            localStorage.setItem(`myjnia_shift_times_${currentDate}`, JSON.stringify(next));
-          } catch (e) {
-            console.error(e);
-          }
-          return next;
-        });
-      } else {
-        setShiftStartTimes(prev => {
-          const next = { ...prev };
-          delete next[id];
-          try {
-            localStorage.setItem(`myjnia_shift_times_${currentDate}`, JSON.stringify(next));
-          } catch (e) {
-            console.error(e);
-          }
-          return next;
-        });
-      }
-    }
-
+    await persistRoster(nextIds);
     setShiftConfirmEmp(null);
   };
 
@@ -415,44 +400,9 @@ export default function PlannerBoard({
     setShiftSelectionIds([]);
   };
 
-  const handleSaveShiftModal = () => {
-    const nextActive = shiftSelectionIds;
-    setActiveEmpIds(nextActive);
-
-    try {
-      localStorage.setItem(`myjnia_shift_employees_${currentDate}`, JSON.stringify(nextActive));
-    } catch (e) {
-      console.error(e);
-    }
-
-    // Czas pracy naliczamy i startujemy WYŁĄCZNIE dla dnia dzisiejszego (isToday)
-    if (isToday) {
-      const now = Date.now();
-      setShiftStartTimes(prev => {
-        const nextTimes: Record<string, number> = { ...prev };
-        // add newly activated employees
-        nextActive.forEach(id => {
-          if (!nextTimes[id]) {
-            nextTimes[id] = now;
-          }
-        });
-        // remove deactivated employees
-        Object.keys(nextTimes).forEach(id => {
-          if (!nextActive.includes(id)) {
-            delete nextTimes[id];
-          }
-        });
-
-        try {
-          localStorage.setItem(`myjnia_shift_times_${currentDate}`, JSON.stringify(nextTimes));
-        } catch (e) {
-          console.error(e);
-        }
-        return nextTimes;
-      });
-    }
-
-    setShowShiftStartModal(false);
+  const handleSaveShiftModal = async () => {
+    const saved = await persistRoster(shiftSelectionIds);
+    if (saved) setShowShiftStartModal(false);
   };
 
   // Helpers for shift display
@@ -471,19 +421,21 @@ export default function PlannerBoard({
 
   // Status changes
   const handleStartOrder = async (orderId: string) => {
-    await updateOrderStatus(orderId, 'IN_PROGRESS');
+    const res = await updateOrderStatus(orderId, 'IN_PROGRESS');
+    if (!res.success) showActionError(res.error || 'Nie udało się rozpocząć mycia.');
     fetchDayOrders();
   };
 
   const handleCompleteOrder = (orderId: string) => {
     if (!canEdit) return;
-    const order = [...orders, ...pastUnfinishedOrders].find(item => item.id === orderId);
+    const order = [...orders, ...pastUnfinishedOrders, ...pendingReleases].find(item => item.id === orderId);
     if (order) setReleaseOrderSnapshot(order);
   };
 
   const handleConfirmDelete = async () => {
     if (deleteConfirmId) {
-      await deleteOrder(deleteConfirmId);
+      const res = await deleteOrder(deleteConfirmId);
+      if (!res.success) showActionError(res.error || 'Nie udało się usunąć zlecenia.');
       setDeleteConfirmId(null);
       fetchDayOrders();
     }
@@ -491,10 +443,35 @@ export default function PlannerBoard({
 
   const handleConfirmFinish = async () => {
     if (finishConfirmId) {
-      await finishOrderWithNote(finishConfirmId, finishNote);
+      const res = await finishOrderWithNote(finishConfirmId, finishNote);
+      if (!res.success) {
+        showActionError(res.error || 'Nie udało się zakończyć zlecenia.');
+        return;
+      }
       setFinishNote('');
       setFinishConfirmId(null);
       fetchDayOrders();
+    }
+  };
+
+  const handleConfirmCancel = async () => {
+    if (!cancelTarget || cancelPending) return;
+    setCancelPending(true);
+    setCancelError('');
+    try {
+      const res = await cancelOrder(cancelTarget.id, { reason: cancelReason });
+      if (!res.success) {
+        setCancelError(res.error || 'Nie udało się anulować zlecenia.');
+        return;
+      }
+      setCancelTarget(null);
+      setCancelReason('');
+      setEditingOrder(null);
+      fetchDayOrders();
+    } catch {
+      setCancelError('Błąd połączenia. Spróbuj ponownie.');
+    } finally {
+      setCancelPending(false);
     }
   };
 
@@ -505,7 +482,8 @@ export default function PlannerBoard({
 
   const handleSaveNote = async () => {
     if (noteEditOrderId) {
-      await addOrderNote(noteEditOrderId, noteEditText);
+      const res = await addOrderNote(noteEditOrderId, noteEditText);
+      if (!res.success) showActionError(res.error || 'Nie udało się zapisać notatki.');
       setNoteEditOrderId(null);
       setNoteEditText('');
       fetchDayOrders();
@@ -657,6 +635,7 @@ export default function PlannerBoard({
     cellLongPressTimer.current = setTimeout(() => {
       const ref = cellPressRef.current;
       if (!ref || ref.pointerId !== e.pointerId) return;
+      setQuickAddError('');
       setQuickAddPrefill({ time: ref.time, employeeId: ref.employeeId });
       cellPressRef.current = null;
     }, 450);
@@ -689,11 +668,12 @@ export default function PlannerBoard({
     const todayDate = new Date();
     todayDate.setHours(h, m, 0, 0);
 
-    await scheduleOrder(ord.id, {
+    const res = await scheduleOrder(ord.id, {
       scheduledStartTime: todayDate.toISOString(),
       durationMin: ord.durationMin || 30,
       assignedEmployeeId: ord.assignedEmployeeId || activeEmpIds[0] || employees[0]?.id,
     });
+    if (!res.success) showActionError(res.error || 'Nie udało się przepisać zlecenia na dziś.');
 
     fetchDayOrders();
   };
@@ -718,9 +698,7 @@ export default function PlannerBoard({
   // Unassigned / Unscheduled orders strictly on this viewed date (Priority/Express orders first)
   const unassignedOrders = useMemo(() => {
     return orders
-      .filter(
-        o => !o.scheduledStartTime || !o.assignedEmployeeId || (o.status === 'PLANNED' && !o.scheduledStartTime)
-      )
+      .filter(isQueueOrder)
       .sort((a, b) => {
         if (a.isPriority && !b.isPriority) return -1;
         if (!a.isPriority && b.isPriority) return 1;
@@ -735,7 +713,7 @@ export default function PlannerBoard({
     const currentSlotMinutes = now.getHours() * 60 + now.getMinutes();
 
     return orders.filter(o => {
-      if (!o.scheduledStartTime || o.status === 'COMPLETED' || o.status === 'READY') return false;
+      if (!o.scheduledStartTime || o.status === 'COMPLETED' || o.status === 'READY' || o.status === 'CANCELLED') return false;
       const start = new Date(o.scheduledStartTime);
       const startDateStr = format(start, 'yyyy-MM-dd');
       if (startDateStr !== currentDate) return false;
@@ -744,6 +722,23 @@ export default function PlannerBoard({
       return startMinutes < currentSlotMinutes - 30; // 30 min grace period
     });
   }, [orders, isToday, currentDate]);
+
+  // Auta gotowe do wydania, których nie ma na widocznym grafiku (poza kolumnami pracowników).
+  const visibleBoardOrderIds = useMemo(() => {
+    const ids = new Set<string>();
+    orders.forEach(o => {
+      if (!o.scheduledStartTime || !o.assignedEmployeeId) return;
+      if (!activeEmpIds.includes(o.assignedEmployeeId)) return;
+      if (format(new Date(o.scheduledStartTime), 'yyyy-MM-dd') !== currentDate) return;
+      ids.add(o.id);
+    });
+    return ids;
+  }, [orders, activeEmpIds, currentDate]);
+
+  const pendingReleaseOrders = useMemo(
+    () => pendingReleases.filter(o => !visibleBoardOrderIds.has(o.id)),
+    [pendingReleases, visibleBoardOrderIds]
+  );
 
   // Calculate current hour capacity load
   const currentHourLoad = useMemo(() => {
@@ -767,7 +762,7 @@ export default function PlannerBoard({
 
     activeEmployees.forEach((emp) => {
       const dayOrders = orders
-        .filter(o => o.assignedEmployeeId === emp.id && o.scheduledStartTime
+        .filter(o => o.status !== 'CANCELLED' && o.assignedEmployeeId === emp.id && o.scheduledStartTime
           && format(new Date(o.scheduledStartTime), 'yyyy-MM-dd') === currentDate)
         .map(o => {
           const start = new Date(o.scheduledStartTime).getTime();
@@ -847,6 +842,12 @@ export default function PlannerBoard({
 
   return (
     <div className="planner-board min-w-0 flex-1 flex flex-col space-y-4">
+
+      {actionError && (
+        <div role="alert" className="sticky top-2 z-[120] mx-auto w-full max-w-xl rounded-2xl border border-rose-600 bg-rose-950/95 px-4 py-3 text-sm font-bold text-rose-100 shadow-2xl">
+          {actionError}
+        </div>
+      )}
       
       {/* Compact toolbar keeps the schedule visible; date and roster expand on demand. */}
       <section className="planner-controls rounded-2xl border border-slate-800 bg-slate-900 shadow-xl">
@@ -899,10 +900,13 @@ export default function PlannerBoard({
 
           {canEdit && (
             <button
-              onClick={() => setQuickAddPrefill({
-                time: getRoundedCurrentTime(30),
-                employeeId: activeEmployees[0]?.id || employees[0]?.id || '',
-              })}
+              onClick={() => {
+                setQuickAddError('');
+                setQuickAddPrefill({
+                  time: getRoundedCurrentTime(30),
+                  employeeId: activeEmployees[0]?.id || employees[0]?.id || '',
+                });
+              }}
               className="px-3.5 py-2 sm:py-2.5 rounded-xl bg-sky-500 hover:bg-sky-400 text-white font-extrabold text-xs shadow-lg shadow-sky-500/20 transition-all flex items-center gap-1.5"
             >
               <Plus className="w-4 h-4" />
@@ -1119,7 +1123,13 @@ export default function PlannerBoard({
                   </button>
 
                   <button
-                    onClick={() => setFinishConfirmId(pOrd.id)}
+                    onClick={() => {
+                      if (!pOrd.assignedEmployeeId || !pOrd.scheduledStartTime) {
+                        setEditingOrder(pOrd);
+                      } else {
+                        setFinishConfirmId(pOrd.id);
+                      }
+                    }}
                     className="py-2 px-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs transition-all flex items-center justify-center gap-1 shadow"
                   >
                     <CheckCircle2 className="w-3.5 h-3.5 stroke-[3]" />
@@ -1201,7 +1211,13 @@ export default function PlannerBoard({
                         Teraz
                       </button>
                       <button
-                        onClick={() => setFinishConfirmId(ord.id)}
+                        onClick={() => {
+                          if (!ord.assignedEmployeeId || !ord.scheduledStartTime) {
+                            setEditingOrder(ord);
+                          } else {
+                            setFinishConfirmId(ord.id);
+                          }
+                        }}
                         className="py-1.5 px-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-[10px] transition-all flex items-center justify-center gap-1 shadow"
                       >
                         <CheckCircle2 className="w-3 h-3 stroke-[3]" />
@@ -1292,6 +1308,58 @@ export default function PlannerBoard({
         </details>
       )}
 
+      {/* Auta gotowe do odbioru, których nie ma na grafiku (np. z poprzednich dni lub bez przypisania) */}
+      {pendingReleaseOrders.length > 0 && (
+        <details className="planner-queue group bg-gradient-to-r from-emerald-950/80 via-slate-950 to-slate-900 border border-emerald-500/40 rounded-2xl shadow-lg">
+          <summary className="min-h-11 flex cursor-pointer list-none flex-wrap items-center justify-between gap-2 rounded-2xl px-4 py-3 hover:bg-emerald-950/40 transition-colors">
+            <div className="flex items-center gap-2.5">
+              <CheckCircle2 className="w-5 h-5 text-emerald-400 flex-shrink-0" />
+              <h3 className="text-sm font-black text-emerald-300 uppercase tracking-tight flex items-center gap-2 flex-wrap">
+                Gotowe do wydania poza grafikiem
+                <span className="text-xs font-black px-2 py-0.5 rounded-full bg-emerald-500 text-slate-950 shadow">
+                  {pendingReleaseOrders.length}
+                </span>
+              </h3>
+            </div>
+            <span className="flex items-center gap-1 text-xs font-bold text-emerald-300 whitespace-nowrap">
+              Pokaż / ukryj <ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180" />
+            </span>
+          </summary>
+          <div className="px-4 pb-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2 max-h-[45dvh] overflow-y-auto">
+            {pendingReleaseOrders.map((ord) => (
+              <div key={ord.id} className="flex items-center justify-between gap-2 rounded-xl border border-emerald-500/30 bg-slate-950/80 p-2.5">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-mono font-black text-sm text-white truncate">{ord.licensePlate}</span>
+                    <span
+                      className="text-[9px] font-black px-1.5 py-0.5 rounded text-white flex-shrink-0"
+                      style={{ backgroundColor: ord.department?.color || '#3b82f6' }}
+                    >
+                      {ord.department?.code}
+                    </span>
+                  </div>
+                  <p className="text-[10px] text-slate-400 truncate">
+                    {ord.category?.name} • na {format(new Date(ord.targetReadyTime), 'd MMM HH:mm', { locale: pl })}
+                  </p>
+                  <p className="text-[10px] text-slate-500 truncate">
+                    {ord.assignedEmployee?.name || 'bez przypisania'}
+                  </p>
+                </div>
+                {canEdit && (
+                  <button
+                    type="button"
+                    onClick={() => setReleaseOrderSnapshot(ord)}
+                    className="flex-shrink-0 rounded-lg bg-emerald-500 px-2.5 py-2 text-[10px] font-black text-slate-950 hover:bg-emerald-400"
+                  >
+                    WYDANE
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
+
       {/* Main Grid: Staff Columns & Timeline (Scrollable & Auto-centered) */}
       <div 
         ref={timelineScrollRef}
@@ -1354,7 +1422,7 @@ export default function PlannerBoard({
               {visibleEmployees.map((emp) => {
                 // Only count active orders strictly belonging to this viewed day
                 const empOrders = orders.filter((o) => {
-                  if (o.assignedEmployeeId !== emp.id || o.status === 'COMPLETED') return false;
+                  if (o.assignedEmployeeId !== emp.id || o.status === 'COMPLETED' || o.status === 'CANCELLED') return false;
                   if (!o.scheduledStartTime) return false;
                   return format(new Date(o.scheduledStartTime), 'yyyy-MM-dd') === currentDate;
                 });
@@ -1444,6 +1512,7 @@ export default function PlannerBoard({
                         onDoubleClick={(e) => {
                           if (!canEdit) return;
                           if ((e.target as HTMLElement).closest('[data-order-card], button')) return;
+                          setQuickAddError('');
                           setQuickAddPrefill({ time: slot, employeeId: emp.id });
                         }}
                         className={`absolute left-0 right-0 rounded-2xl flex items-center justify-center transition-all border ${
@@ -1978,6 +2047,61 @@ export default function PlannerBoard({
         );
       })()}
 
+      {/* Cancel Order Confirmation Modal (audyt: powód + autor) */}
+      {cancelTarget && (
+        <div className="planner-dialog fixed inset-0 z-[110] bg-slate-950/85 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-rose-700 rounded-3xl p-6 sm:p-7 w-full max-w-md shadow-2xl space-y-4 animate-in fade-in zoom-in duration-150">
+            <div className="text-center">
+              <div className="w-14 h-14 rounded-2xl bg-rose-500/10 text-rose-400 flex items-center justify-center mx-auto mb-3">
+                <AlertOctagon className="w-8 h-8" />
+              </div>
+              <h3 className="font-extrabold text-lg text-white">Anulować zlecenie?</h3>
+              <p className="text-sm font-bold text-rose-300 mt-1">{cancelTarget.licensePlate}</p>
+              <p className="text-xs text-slate-400 mt-1">
+                Zlecenie zostanie oznaczone jako <strong>ANULOWANE</strong> i zniknie z grafiku oraz obłożenia. Historia zostanie zachowana.
+              </p>
+            </div>
+
+            <label className="block text-left">
+              <span className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">Powód anulowania (opcjonalnie)</span>
+              <textarea
+                value={cancelReason}
+                onChange={(e) => setCancelReason(e.target.value)}
+                maxLength={500}
+                rows={2}
+                placeholder="np. Wydanie klienta odwołane, auto nie wymaga mycia"
+                className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white text-xs placeholder:text-slate-600 focus:outline-none focus:border-rose-500 resize-none"
+              />
+            </label>
+
+            {cancelError && (
+              <p role="alert" className="rounded-xl border border-rose-700 bg-rose-950/50 p-3 text-xs font-bold text-rose-200">
+                {cancelError}
+              </p>
+            )}
+
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                disabled={cancelPending}
+                onClick={() => setCancelTarget(null)}
+                className="flex-1 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs disabled:opacity-50"
+              >
+                Wróć
+              </button>
+              <button
+                type="button"
+                disabled={cancelPending}
+                onClick={handleConfirmCancel}
+                className="flex-1 py-3 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-black text-xs shadow-lg shadow-rose-600/30 disabled:opacity-50"
+              >
+                {cancelPending ? 'Anulowanie...' : 'Tak, anuluj'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Tablet-Friendly In-App Delete Confirmation Modal */}
       {deleteConfirmId && (
         <div className="planner-dialog fixed inset-0 z-[100] bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
@@ -2296,11 +2420,14 @@ export default function PlannerBoard({
                     </div>
                     <div>
                       <span className="text-slate-400 block text-[9px] uppercase font-bold">Status:</span>
-                      <span className="font-bold text-emerald-400 text-xs">
+                      <span className={`font-bold text-xs ${
+                        editingOrder.status === 'CANCELLED' ? 'text-rose-400' : 'text-emerald-400'
+                      }`}>
                         {editingOrder.status === 'PLANNED' && 'W kolejce'}
                         {editingOrder.status === 'IN_PROGRESS' && 'W trakcie mycia'}
                         {editingOrder.status === 'READY' && 'Gotowe'}
                         {editingOrder.status === 'COMPLETED' && 'Wydane'}
+                        {editingOrder.status === 'CANCELLED' && 'Anulowane'}
                       </span>
                     </div>
                     <div>
@@ -2341,6 +2468,19 @@ export default function PlannerBoard({
                       </div>
                     )}
                   </div>
+
+                  {editingOrder.status === 'CANCELLED' && (
+                    <div className="pt-2 border-t border-rose-900/60">
+                      <span className="text-rose-400 block text-[9px] uppercase font-bold mb-0.5">Anulowane:</span>
+                      <p className="text-rose-200 text-xs font-semibold">
+                        {editingOrder.cancelledBy || 'brak danych'}
+                        {editingOrder.cancelledAt ? ` • ${format(new Date(editingOrder.cancelledAt), 'd MMM, HH:mm', { locale: pl })}` : ''}
+                      </p>
+                      {editingOrder.cancelReason && (
+                        <p className="text-rose-300/80 text-[11px] italic mt-0.5">Powód: {editingOrder.cancelReason}</p>
+                      )}
+                    </div>
+                  )}
 
                   {editingOrder.notes && (
                     <div className="pt-2 border-t border-slate-800">
@@ -2517,6 +2657,26 @@ export default function PlannerBoard({
                   </label>
                 </div>
 
+                {modalError && (
+                  <p role="alert" className="rounded-xl border border-rose-700 bg-rose-950/50 p-2.5 text-[11px] font-bold text-rose-200">
+                    {modalError}
+                  </p>
+                )}
+
+                {canEdit && editingOrder.status !== 'COMPLETED' && editingOrder.status !== 'CANCELLED' && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCancelError('');
+                      setCancelReason('');
+                      setCancelTarget(editingOrder);
+                    }}
+                    className="w-full py-2 rounded-xl border border-rose-700/60 bg-rose-950/30 text-rose-300 text-[11px] font-bold hover:bg-rose-900/40 transition-colors"
+                  >
+                    Anuluj zlecenie
+                  </button>
+                )}
+
                 <div className="flex items-center gap-2.5 pt-2">
                   <button
                     type="button"
@@ -2528,16 +2688,47 @@ export default function PlannerBoard({
                   <button
                     type="button"
                     onClick={async () => {
+                      if (!modalScheduleDate || !modalScheduleTime) {
+                        setModalError('Wybierz dzień i godzinę realizacji.');
+                        return;
+                      }
                       const [h, m] = modalScheduleTime.split(':').map(Number);
-                      const startDate = new Date(modalScheduleDate);
+                      if (!Number.isFinite(h) || !Number.isFinite(m)) {
+                        setModalError('Nieprawidłowa godzina realizacji.');
+                        return;
+                      }
+                      const startDate = new Date(`${modalScheduleDate}T00:00:00`);
+                      if (Number.isNaN(startDate.getTime())) {
+                        setModalError('Nieprawidłowa data realizacji.');
+                        return;
+                      }
                       startDate.setHours(h, m, 0, 0);
+                      if (Number.isNaN(startDate.getTime())) {
+                        setModalError('Nieprawidłowa data lub godzina realizacji.');
+                        return;
+                      }
+                      const duration = Number(modalDuration);
+                      if (!Number.isFinite(duration) || duration < 5 || duration > 600) {
+                        setModalError('Czas trwania musi mieścić się w zakresie 5-600 minut.');
+                        return;
+                      }
 
-                      await scheduleOrder(editingOrder.id, {
-                        scheduledStartTime: startDate.toISOString(),
-                        durationMin: modalDuration,
-                        assignedEmployeeId: modalEmployeeId,
-                        isOverCapacity: modalOverCapacity,
-                      });
+                      setModalError('');
+                      try {
+                        const res = await scheduleOrder(editingOrder.id, {
+                          scheduledStartTime: startDate.toISOString(),
+                          durationMin: duration,
+                          assignedEmployeeId: modalEmployeeId || null,
+                          isOverCapacity: modalOverCapacity,
+                        });
+                        if (!res.success) {
+                          setModalError(res.error || 'Nie udało się zapisać terminu.');
+                          return;
+                        }
+                      } catch {
+                        setModalError('Błąd połączenia. Spróbuj ponownie.');
+                        return;
+                      }
 
                       // If scheduled to another date, switch to that date to show the user where it landed
                       if (modalScheduleDate !== currentDate) {
@@ -2638,6 +2829,7 @@ export default function PlannerBoard({
             <form
               onSubmit={async (e) => {
                 e.preventDefault();
+                setQuickAddError('');
                 const form = e.currentTarget;
                 const plate = (form.elements.namedItem('qa-plate') as HTMLInputElement).value;
                 const model = (form.elements.namedItem('qa-model') as HTMLInputElement).value;
@@ -2646,23 +2838,48 @@ export default function PlannerBoard({
                 const empId = (form.elements.namedItem('qa-emp') as HTMLSelectElement).value;
                 const timeStr = (form.elements.namedItem('qa-time') as HTMLInputElement).value;
 
+                if (!plate.trim()) {
+                  setQuickAddError('Podaj numer rejestracyjny.');
+                  return;
+                }
                 const [h, m] = timeStr.split(':').map(Number);
-                const startDate = new Date(currentDate);
+                if (!timeStr || !Number.isFinite(h) || !Number.isFinite(m)) {
+                  setQuickAddError('Wybierz prawidłową godzinę startu.');
+                  return;
+                }
+                const startDate = new Date(`${currentDate}T00:00:00`);
+                if (Number.isNaN(startDate.getTime())) {
+                  setQuickAddError('Nieprawidłowa data planera.');
+                  return;
+                }
                 startDate.setHours(h, m, 0, 0);
+                if (Number.isNaN(startDate.getTime())) {
+                  setQuickAddError('Nieprawidłowa godzina startu.');
+                  return;
+                }
 
                 const targetDate = new Date(startDate.getTime() + 60 * 60000);
 
-                await createOrder({
-                  licensePlate: plate.toUpperCase(),
-                  carModel: model,
-                  carType: 'PASSENGER',
-                  departmentId: deptId,
-                  categoryId: catId,
-                  targetReadyTime: targetDate.toISOString(),
-                  scheduledStartTime: startDate.toISOString(),
-                  assignedEmployeeId: empId,
-                  enteredByWash: true,
-                });
+                try {
+                  const res = await createOrder({
+                    licensePlate: plate.toUpperCase(),
+                    carModel: model,
+                    carType: 'PASSENGER',
+                    departmentId: deptId,
+                    categoryId: catId,
+                    targetReadyTime: targetDate.toISOString(),
+                    scheduledStartTime: startDate.toISOString(),
+                    assignedEmployeeId: empId,
+                    enteredByWash: true,
+                  });
+                  if (!res.success) {
+                    setQuickAddError(res.error || 'Nie udało się dodać zlecenia.');
+                    return;
+                  }
+                } catch {
+                  setQuickAddError('Błąd połączenia. Spróbuj ponownie.');
+                  return;
+                }
 
                 setQuickAddPrefill(null);
                 fetchDayOrders();
@@ -2753,6 +2970,12 @@ export default function PlannerBoard({
                   />
                 </div>
               </div>
+
+              {quickAddError && (
+                <p role="alert" className="rounded-xl border border-rose-700 bg-rose-950/50 p-3 text-xs font-bold text-rose-200">
+                  {quickAddError}
+                </p>
+              )}
 
               <div className="flex items-center gap-3 pt-3">
                 <button
@@ -2863,6 +3086,12 @@ export default function PlannerBoard({
                 );
               })}
             </div>
+
+            {rosterError && (
+              <p role="alert" className="rounded-xl border border-rose-700 bg-rose-950/50 p-3 text-xs font-bold text-rose-200">
+                {rosterError}
+              </p>
+            )}
 
             {/* Modal Actions */}
             <div className="flex items-center gap-3 pt-3 border-t border-slate-800">
