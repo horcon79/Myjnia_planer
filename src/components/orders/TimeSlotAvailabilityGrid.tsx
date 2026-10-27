@@ -4,6 +4,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Clock, CheckCircle2, AlertCircle, AlertTriangle, Sparkles, Calendar, Info, ChevronDown, ChevronUp, SunMedium } from 'lucide-react';
 import { format } from 'date-fns';
 import { pl } from 'date-fns/locale';
+import { computeSlotUsage, getOrderServiceWindow } from '@/lib/planner';
 
 export interface TimeSlotAvailabilityGridProps {
   orders: any[];
@@ -36,6 +37,12 @@ interface SlotInfo {
   isClosed: boolean;
   isSelected: boolean;
   activeOrdersCount: number;
+  serviceStartStr: string;
+  conflicts: Array<{
+    licensePlate: string;
+    startStr: string;
+    endStr: string;
+  }>;
 }
 
 export default function TimeSlotAvailabilityGrid({
@@ -98,39 +105,19 @@ export default function TimeSlotAvailabilityGrid({
 
         // Obliczenie zajętości w tym oknie czasowym gotowości
         // Dla gotowości o timeStr (np. 08:30) praca odbywa się w oknie [slotStartMs, slotReadyMs] (np. 08:00 - 08:30)
-        let usedCapacity = 0;
-        let activeOrdersCount = 0;
-
         const slotReadyMs = slotReadyDate.getTime();
         const slotStartMs = slotReadyMs - serviceDurationMin * 60000;
 
-        orders.forEach((o) => {
-          if (o.status === 'COMPLETED' || o.status === 'CANCELLED') return;
-
-          const weight = o.carType === 'DELIVERY' ? deliveryCarWeight : 1.0;
-          const orderDuration = (o.durationMin || 30) * 60000;
-
-          let startMs: number | null = null;
-          let endMs: number | null = null;
-
-          if (o.scheduledStartTime) {
-            startMs = new Date(o.scheduledStartTime).getTime();
-            endMs = o.scheduledEndTime
-              ? new Date(o.scheduledEndTime).getTime()
-              : startMs + orderDuration;
-          } else if (o.targetReadyTime) {
-            endMs = new Date(o.targetReadyTime).getTime();
-            startMs = endMs - orderDuration;
-          }
-
-          if (startMs !== null && endMs !== null) {
-            // Sprawdzenie nachodzenia przedziałów [slotStartMs, slotReadyMs] oraz [startMs, endMs]
-            if (startMs < slotReadyMs && endMs > slotStartMs) {
-              usedCapacity += weight;
-              activeOrdersCount++;
-            }
-          }
+        const usage = computeSlotUsage(orders, slotStartMs, slotReadyMs, {
+          deliveryCarWeight,
         });
+        const usedCapacity = usage.usedCapacity;
+        const activeOrdersCount = usage.activeOrdersCount;
+        const conflicts = usage.conflicts.map(({ order, window }) => ({
+          licensePlate: order.licensePlate || order.id || 'Zlecenie',
+          startStr: format(new Date(window.startMs), 'HH:mm'),
+          endStr: format(new Date(window.endMs), 'HH:mm'),
+        }));
 
         const availableSlots = Math.max(0, Math.round((maxSimultaneousCars - usedCapacity) * 10) / 10);
         const isSelected = selectedHour === timeStr;
@@ -146,6 +133,8 @@ export default function TimeSlotAvailabilityGrid({
           isClosed,
           isSelected,
           activeOrdersCount,
+          serviceStartStr: format(new Date(slotStartMs), 'HH:mm'),
+          conflicts,
         });
       }
     }
@@ -188,6 +177,31 @@ export default function TimeSlotAvailabilityGrid({
     }
   }, [allSlots, selectedHour, onSlotStatusChange, futureSlots]);
 
+  // Rzeczywiste okna pracy istniejących zleceń - pokazują, że po terminie gotowości
+  // żadne stanowisko nie pozostaje zarezerwowane.
+  const occupancyWindows = useMemo(() => {
+    const windows: Array<{
+      id: string;
+      licensePlate: string;
+      startStr: string;
+      endStr: string;
+    }> = [];
+
+    for (const order of orders) {
+      if (order.status === 'COMPLETED' || order.status === 'CANCELLED') continue;
+      const window = getOrderServiceWindow(order);
+      if (!window) continue;
+      windows.push({
+        id: order.id || `${order.licensePlate}-${window.startMs}`,
+        licensePlate: order.licensePlate || order.id || 'Zlecenie',
+        startStr: format(new Date(window.startMs), 'HH:mm'),
+        endStr: format(new Date(window.endMs), 'HH:mm'),
+      });
+    }
+
+    return windows.sort((a, b) => a.startStr.localeCompare(b.startStr));
+  }, [orders]);
+
   // Sloty do wyświetlenia (jeśli showPastSlots jest false, pokazujemy TYLKO przyszłe)
   const visibleSlots = showPastSlots ? allSlots : futureSlots;
 
@@ -217,6 +231,11 @@ export default function TimeSlotAvailabilityGrid({
           </span>
         </div>
       </div>
+
+      <p className="text-[9px] text-slate-400 leading-tight">
+        Godzina = termin gotowości. <strong className="text-slate-300">1/2</strong> oznacza liczbę wolnych stanowisk
+        w całym oknie wybranej usługi ({serviceDurationMin} min), a nie rezerwację po terminie gotowości.
+      </p>
 
       {/* Komunikat o braku okien na dziś (np. pod koniec dnia) */}
       {isToday && futureSlots.length === 0 && (
@@ -267,6 +286,15 @@ export default function TimeSlotAvailabilityGrid({
               cardBg = 'bg-sky-500/20 border-sky-400 ring-2 ring-sky-400/40 text-white font-bold shadow-md shadow-sky-500/10';
             }
 
+            const conflictText = slot.conflicts.length > 0
+              ? ` Kolizja: ${slot.conflicts.map((c) => `${c.licensePlate} ${c.startStr}–${c.endStr}`).join(', ')}.`
+              : ' Brak kolizji.';
+            const slotTitle = isDisabled
+              ? slot.isClosed
+                ? 'Myjnia zamknięta'
+                : 'Godzina przeszła lub za krótki czas na realizację dzisiaj'
+              : `Gotowość ${slot.timeStr}: wybrana usługa ${serviceDurationMin} min wymaga pracy ${slot.serviceStartStr}–${slot.timeStr}.${conflictText}`;
+
             return (
               <button
                 key={slot.timeStr}
@@ -274,13 +302,7 @@ export default function TimeSlotAvailabilityGrid({
                 disabled={isDisabled}
                 onClick={() => onSelectHour(slot.timeStr)}
                 className={`p-1.5 rounded-lg border transition-all text-left flex flex-col justify-between gap-0.5 relative group ${cardBg}`}
-                title={
-                  isDisabled
-                    ? slot.isClosed
-                      ? 'Myjnia zamknięta'
-                      : 'Godzina przeszła lub za krótki czas na realizację dzisiaj'
-                    : `Kliknij, aby wybrać termin gotowości: ${slot.timeStr}`
-                }
+                title={slotTitle}
               >
                 <div className="flex items-center justify-between">
                   <span className={`text-[11px] font-mono font-extrabold ${slot.isSelected ? 'text-sky-300' : ''}`}>
@@ -299,6 +321,26 @@ export default function TimeSlotAvailabilityGrid({
               </button>
             );
           })}
+        </div>
+      )}
+
+      {/* Rzeczywiste okna pracy zleceń - pokazuje stanowiska zajęte tylko w czasie usługi */}
+      {occupancyWindows.length > 0 && (
+        <div className="pt-1.5 border-t border-slate-800/60">
+          <div className="text-[9px] font-bold uppercase tracking-wider text-slate-400 mb-1">
+            Obłożenie stanowisk ({occupancyWindows.length})
+          </div>
+          <div className="flex flex-wrap gap-1">
+            {occupancyWindows.map((window) => (
+              <span
+                key={window.id}
+                className="text-[9px] font-mono font-bold text-sky-200 bg-sky-950/50 border border-sky-500/25 rounded px-1.5 py-0.5"
+              >
+                {window.startStr}–{window.endStr}{' '}
+                <span className="font-sans text-slate-300">{window.licensePlate}</span>
+              </span>
+            ))}
+          </div>
         </div>
       )}
 

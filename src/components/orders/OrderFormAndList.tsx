@@ -37,6 +37,7 @@ import {
 } from 'lucide-react';
 import { format, addDays, isAfter, isBefore } from 'date-fns';
 import { pl } from 'date-fns/locale';
+import { getLatestArrivalTime } from '@/lib/planner';
 import TimeSlotAvailabilityGrid from './TimeSlotAvailabilityGrid';
 
 interface OrderFormAndListProps {
@@ -166,6 +167,19 @@ export default function OrderFormAndList({
   }, [currentCat, targetReadyDate, todayStr, now, workStartHour]);
 
   const earliestFeasibleHourToday = earliestFeasibleHourForSelectedDate;
+
+  // Najpóźniejszy przyjazd auta na myjnię, aby usługa zakończyła się o wybranej godzinie.
+  const formServiceDuration = currentCat?.defaultDurationMin || 30;
+  const formReadyDate = new Date(`${targetReadyDate}T${targetHour || '00:00'}:00`);
+  const latestArrivalForForm = Number.isNaN(formReadyDate.getTime())
+    ? null
+    : getLatestArrivalTime(formReadyDate, formServiceDuration);
+  const latestArrivalHourForForm = latestArrivalForForm ? format(latestArrivalForForm, 'HH:mm') : '—';
+  const isLatestArrivalPast = Boolean(
+    targetReadyDate === todayStr &&
+    latestArrivalForForm &&
+    latestArrivalForForm.getTime() < now.getTime()
+  );
 
   // Quick chips for ready time (always forward-looking and capped at workEndHour)
   const handleQuickTime = (minutesFromNow: number) => {
@@ -970,9 +984,16 @@ export default function OrderFormAndList({
                     onChange={(e) => setTargetHour(e.target.value)}
                     className="px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-white font-mono text-sm font-bold focus:outline-none focus:border-sky-500"
                   />
-                  <span className="text-[11px] text-amber-300 font-semibold truncate">
-                    Gotowe na: <strong>{targetHour}</strong> ({format(new Date(targetReadyDate), 'd MMM', { locale: pl })})
-                  </span>
+                  <div className="min-w-0">
+                    <span className="block text-[11px] text-amber-300 font-semibold truncate">
+                      Gotowe na: <strong>{targetHour}</strong> ({format(new Date(targetReadyDate), 'd MMM', { locale: pl })})
+                    </span>
+                    <span className={`block text-[10px] font-semibold ${isLatestArrivalPast ? 'text-rose-300' : 'text-sky-300'}`}>
+                      Przyjąć najpóźniej: <strong className="font-mono">{latestArrivalHourForForm}</strong>
+                      {' '}(start usługi {formServiceDuration} min)
+                      {isLatestArrivalPast && ' — termin minął'}
+                    </span>
+                  </div>
                 </div>
 
                 {/* Overbooked / Full Capacity Warning Banner */}
@@ -1322,6 +1343,10 @@ export default function OrderFormAndList({
                 const hasDelay = order.scheduledStartTime &&
                   (new Date(order.scheduledStartTime).getTime() + (order.durationMin || 30) * 60000) > new Date(order.targetReadyTime).getTime() &&
                   order.status !== 'COMPLETED';
+                const latestArrival = getLatestArrivalTime(
+                  order.targetReadyTime,
+                  order.durationMin || 30
+                );
 
                 return (
                   <div
@@ -1393,6 +1418,19 @@ export default function OrderFormAndList({
                             {format(new Date(order.targetReadyTime), 'HH:mm (d MMM)', { locale: pl })}
                           </span>
                         </div>
+
+                        {/* Latest arrival at the wash to finish on time */}
+                        {latestArrival && (
+                          <div
+                            className="flex items-center gap-1 text-[11px]"
+                            title={`Usługa ${order.durationMin || 30} min: najpóźniejszy start, aby zdążyć na ${format(new Date(order.targetReadyTime), 'HH:mm', { locale: pl })}`}
+                          >
+                            <span className="text-slate-400">Na myjni do:</span>
+                            <span className="font-mono font-bold text-sky-300 bg-sky-950/40 px-1.5 py-0.5 rounded border border-sky-500/20">
+                              {format(latestArrival, 'HH:mm', { locale: pl })}
+                            </span>
+                          </div>
+                        )}
 
                         {/* Washer staff (shown when assigned) */}
                         {order.assignedEmployee?.name && (

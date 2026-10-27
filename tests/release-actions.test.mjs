@@ -44,11 +44,16 @@ function fixture(options = {}) {
   function load(file) {
     const source = readFileSync(new URL(`../src/actions/${file}`, import.meta.url), 'utf8');
     const js = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
+    const plannerSource = readFileSync(new URL('../src/lib/planner.ts', import.meta.url), 'utf8');
+    const plannerJs = ts.transpileModule(plannerSource, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
+    const planner = {};
+    vm.runInNewContext(plannerJs, { exports: planner, console: { error() {} } });
     const exports = {};
     vm.runInNewContext(js, { exports, console: { error() {} }, require: (id) => {
       if (id === '@/lib/prisma') return { prisma };
       if (id === '@/actions/auth') return { getCurrentUser: async () => user };
       if (id === 'next/cache') return { revalidatePath() {} };
+      if (id === '@/lib/planner') return planner;
       throw new Error(`Unexpected import: ${id}`);
     } });
     return exports;

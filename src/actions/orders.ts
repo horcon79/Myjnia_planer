@@ -3,6 +3,90 @@
 import { prisma } from '@/lib/prisma';
 import { revalidatePath } from 'next/cache';
 import { getCurrentUser } from '@/actions/auth';
+import { computeSlotUsage } from '@/lib/planner';
+
+const CAPACITY_SETTING_DEFAULTS: Record<string, string> = {
+  MAX_SIMULTANEOUS_CARS: '3',
+  DELIVERY_CAR_WEIGHT: '1.5',
+  ALLOW_OVER_CAPACITY: 'true',
+};
+
+async function getCapacityConfig() {
+  const rows = await prisma.appSetting.findMany({
+    where: { key: { in: Object.keys(CAPACITY_SETTING_DEFAULTS) } },
+  });
+  const values: Record<string, string> = { ...CAPACITY_SETTING_DEFAULTS };
+  for (const row of rows) values[row.key] = row.value;
+
+  const maxCars = Number.parseFloat(values.MAX_SIMULTANEOUS_CARS);
+  const deliveryCarWeight = Number.parseFloat(values.DELIVERY_CAR_WEIGHT);
+
+  return {
+    enforce: values.ALLOW_OVER_CAPACITY === 'false',
+    maxCars: Number.isFinite(maxCars) && maxCars > 0 ? maxCars : 3,
+    deliveryCarWeight: Number.isFinite(deliveryCarWeight) && deliveryCarWeight > 0 ? deliveryCarWeight : 1.5,
+  };
+}
+
+/**
+ * Serwerowa walidacja zdolności dla okna pracy auta. Działa tylko gdy
+ * ALLOW_OVER_CAPACITY=false - w przeciwnym razie siatka pozostaje doradcza.
+ */
+async function validateCapacityWindow(params: {
+  start: Date;
+  end: Date;
+  carType: string;
+  excludeOrderId?: string;
+}): Promise<string | null> {
+  const config = await getCapacityConfig();
+  if (!config.enforce) return null;
+  if (params.end.getTime() <= params.start.getTime()) return null;
+
+  const dayStart = new Date(params.start);
+  dayStart.setHours(0, 0, 0, 0);
+  const dayEnd = new Date(params.start);
+  dayEnd.setHours(23, 59, 59, 999);
+
+  const existing = await prisma.washOrder.findMany({
+    where: {
+      ...(params.excludeOrderId ? { id: { not: params.excludeOrderId } } : {}),
+      OR: [
+        { scheduledStartTime: { gte: dayStart, lte: dayEnd } },
+        { scheduledStartTime: null, targetReadyTime: { gte: dayStart, lte: dayEnd } },
+      ],
+    },
+    select: {
+      id: true,
+      licensePlate: true,
+      status: true,
+      carType: true,
+      durationMin: true,
+      scheduledStartTime: true,
+      scheduledEndTime: true,
+      targetReadyTime: true,
+    },
+  });
+
+  const usage = computeSlotUsage(existing, params.start.getTime(), params.end.getTime(), {
+    deliveryCarWeight: config.deliveryCarWeight,
+  });
+  const candidateWeight = params.carType === 'DELIVERY' ? config.deliveryCarWeight : 1;
+  const totalWeight = usage.usedCapacity + candidateWeight;
+
+  if (totalWeight > config.maxCars + 1e-9) {
+    return `Brak wolnych stanowisk w tym terminie: zajęte ${usage.usedCapacity}/${config.maxCars}, a to auto waży ${candidateWeight}. Wybierz inny termin lub użyj trybu Ekspres/Override.`;
+  }
+
+  return null;
+}
+
+function validateNotLate(end: Date, targetReadyTime: Date): string | null {
+  if (end.getTime() <= targetReadyTime.getTime() + 1000) return null;
+
+  const endLabel = end.toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' });
+  const targetLabel = targetReadyTime.toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' });
+  return `Zakończenie mycia (${endLabel}) wypada po terminie gotowości (${targetLabel}). Skróć czas usługi, wybierz wcześniejszy start lub użyj trybu Ekspres/Override.`;
+}
 
 async function checkPlannerPermission() {
   const user = await getCurrentUser();
@@ -216,19 +300,40 @@ export async function createOrder(input: CreateOrderInput) {
     }
 
     const durationMin = category.defaultDurationMin;
+    const targetDate = new Date(input.targetReadyTime);
+    if (Number.isNaN(targetDate.getTime())) {
+      return { success: false, error: 'Nieprawidłowy termin gotowości.' };
+    }
 
     // Wygeneruj unikalny numer zlecenia na dziś
     const countToday = await prisma.washOrder.count();
     const orderNumber = `Z-${countToday + 101}`;
-
-    const targetDate = new Date(input.targetReadyTime);
 
     let scheduledStart: Date | null = null;
     let scheduledEnd: Date | null = null;
 
     if (input.scheduledStartTime) {
       scheduledStart = new Date(input.scheduledStartTime);
+      if (Number.isNaN(scheduledStart.getTime())) {
+        return { success: false, error: 'Nieprawidłowa godzina startu mycia.' };
+      }
       scheduledEnd = new Date(scheduledStart.getTime() + durationMin * 60000);
+
+      if (!input.isPriority) {
+        const lateError = validateNotLate(scheduledEnd, targetDate);
+        if (lateError) return { success: false, error: lateError };
+      }
+    }
+
+    if (!input.isPriority) {
+      const capacityStart = scheduledStart ?? new Date(targetDate.getTime() - durationMin * 60000);
+      const capacityEnd = scheduledEnd ?? targetDate;
+      const capacityError = await validateCapacityWindow({
+        start: capacityStart,
+        end: capacityEnd,
+        carType: input.carType,
+      });
+      if (capacityError) return { success: false, error: capacityError };
     }
 
     const newOrder = await prisma.washOrder.create({
@@ -520,6 +625,19 @@ export async function scheduleOrder(
       }
     }
     const end = new Date(start.getTime() + duration * 60000);
+
+    if (!current.isPriority && !data.isOverCapacity) {
+      const lateError = validateNotLate(end, current.targetReadyTime);
+      if (lateError) return { success: false, error: lateError };
+
+      const capacityError = await validateCapacityWindow({
+        start,
+        end,
+        carType: current.carType,
+        excludeOrderId: orderId,
+      });
+      if (capacityError) return { success: false, error: capacityError };
+    }
 
     const updated = await prisma.washOrder.update({
       where: { id: orderId },
