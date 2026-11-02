@@ -3,6 +3,7 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 
 export type SupportReportType = 'BUG' | 'CHANGE' | 'IDEA';
+export type SupportReportStatus = 'NEW' | 'VERIFY' | 'DONE';
 
 export interface SupportReportSession {
   login: string;
@@ -15,6 +16,7 @@ export interface SupportReport {
   id: string;
   createdAt: string;
   type: SupportReportType;
+  status?: SupportReportStatus;
   message: string;
   session: SupportReportSession;
   location: string;
@@ -87,7 +89,7 @@ async function writeReportsFile(reports: SupportReport[]): Promise<void> {
 export async function listSupportReports(limit = SUPPORT_REPORTS_LIMIT): Promise<SupportReport[]> {
   const reports = await readReportsFile();
   return reports
-    .slice()
+    .filter((report) => report.status !== 'DONE')
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
     .slice(0, Math.max(1, limit));
 }
@@ -96,7 +98,7 @@ export async function appendSupportReport(report: SupportReport): Promise<void> 
   const task = writeQueue.then(async () => {
     const reports = await readReportsFile();
     reports.unshift(report);
-    await writeReportsFile(reports.slice(0, SUPPORT_REPORTS_LIMIT));
+    await writeReportsFile(reports);
   });
 
   // Kolejne zapisy czekają na poprzedni, nawet jeśli ten zakończy się błędem.

@@ -321,6 +321,9 @@ export default function SupportButton({ user }: { user: SessionUser | null }) {
                                   <TypeIcon className="h-3.5 w-3.5" />
                                   {meta.label}
                                 </span>
+                                <span className="rounded-lg border border-slate-600 bg-slate-800 px-2 py-1 text-[10px] font-bold text-slate-200">
+                                  {report.status === 'VERIFY' ? 'Do weryfikacji' : 'Nowe'}
+                                </span>
                                 <time dateTime={report.createdAt} className="text-[10px] font-mono text-slate-500">
                                   {formatDateTime(report.createdAt)}
                                 </time>

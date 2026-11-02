@@ -22,6 +22,7 @@ export interface SupportReportDTO {
   id: string;
   createdAt: string;
   type: SupportReportType;
+  status: 'NEW' | 'VERIFY';
   message: string;
   session: {
     login: string;
@@ -50,8 +51,14 @@ function serializeReport(report: SupportReport): SupportReportDTO {
     id: report.id,
     createdAt: report.createdAt,
     type: report.type,
+    status: report.status === 'VERIFY' ? 'VERIFY' : 'NEW',
     message: report.message,
-    session: report.session,
+    session: {
+      login: report.session.login,
+      name: report.session.name,
+      code: report.session.code,
+      role: report.session.role,
+    },
     location: report.location,
     appVersion: report.appVersion,
   };
