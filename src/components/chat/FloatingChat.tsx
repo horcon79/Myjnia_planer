@@ -68,6 +68,13 @@ export default function FloatingChat({ user }: { user: SessionUser | null }) {
   const [pulse, setPulse] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const activeThreadRef = useRef<string | null>(null);
+  const threadRequestRef = useRef(0);
+  const pendingThreadRef = useRef<{ id: string; request: number } | null>(null);
+  const stateRequestRef = useRef(0);
+  const navigationRef = useRef(0);
+  const scrollToBottomRef = useRef(true);
   const prevUnreadRef = useRef(0);
   const stateRef = useRef(state);
 
@@ -87,7 +94,10 @@ export default function FloatingChat({ user }: { user: SessionUser | null }) {
 
   const refresh = useCallback(async () => {
     if (!user) return;
+    const request = ++stateRequestRef.current;
     const s = await getChatState();
+    if (request !== stateRequestRef.current) return s;
+    stateRef.current = s;
     setState(s);
     const prev = prevUnreadRef.current;
     if (s.totalUnread > prev && prev !== 0) {
@@ -96,20 +106,59 @@ export default function FloatingChat({ user }: { user: SessionUser | null }) {
       setTimeout(() => setPulse(false), 1200);
     }
     prevUnreadRef.current = s.totalUnread;
+    return s;
   }, [user]);
 
-  // Polling
+  const loadMessages = useCallback(async (id: string, initial = false, skipIfPending = false) => {
+    if (skipIfPending && pendingThreadRef.current?.id === id && pendingThreadRef.current.request === threadRequestRef.current) return;
+    const request = ++threadRequestRef.current;
+    pendingThreadRef.current = { id, request };
+    if (initial) {
+      setLoadingMessages(true);
+      setError(null);
+    }
+    try {
+      const res = await getThreadMessages(id);
+      if (pendingThreadRef.current?.request === request) pendingThreadRef.current = null;
+      if (request !== threadRequestRef.current || activeThreadRef.current !== id) return;
+      setLoadingMessages(false);
+      if (res.success && res.messages) {
+        const nextMessages = res.messages;
+        setMessages((current) => JSON.stringify(current) === JSON.stringify(nextMessages) ? current : nextMessages);
+        await refresh();
+      } else if (initial) {
+        setError(res.error || 'Nie udało się pobrać wiadomości.');
+      }
+    } catch {
+      if (request === threadRequestRef.current && activeThreadRef.current === id) {
+        setLoadingMessages(false);
+        if (initial) setError('Nie udało się pobrać wiadomości.');
+      }
+    } finally {
+      if (pendingThreadRef.current?.request === request) pendingThreadRef.current = null;
+    }
+  }, [refresh]);
+
   useEffect(() => {
     if (!user) return;
-    const initial = setTimeout(() => refresh(), 0);
-    const interval = setInterval(() => {
-      if (document.visibilityState === 'visible') refresh();
-    }, 6000);
+    const poll = (skipIfPending = true) => {
+      if (document.visibilityState !== 'visible') return;
+      const id = activeThreadRef.current;
+      if (id) void loadMessages(id, false, skipIfPending);
+      else void refresh();
+    };
+    const initial = setTimeout(() => poll(), 0);
+    const interval = setInterval(() => poll(), 6000);
+    const onVisibilityChange = () => poll(false);
+    document.addEventListener('visibilitychange', onVisibilityChange);
     return () => {
       clearTimeout(initial);
       clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      threadRequestRef.current++;
+      stateRequestRef.current++;
     };
-  }, [user, refresh]);
+  }, [user, refresh, loadMessages]);
 
   // Zapis imienia
   useEffect(() => {
@@ -119,32 +168,25 @@ export default function FloatingChat({ user }: { user: SessionUser | null }) {
   }, [senderName, user]);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (scrollToBottomRef.current && window.getSelection()?.isCollapsed !== false) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
   }, [messages, view]);
 
   const openThread = async (t: ChatThreadDTO) => {
+    navigationRef.current++;
+    activeThreadRef.current = t.id;
+    scrollToBottomRef.current = true;
     setActiveThread(t);
     setView('thread');
-    setLoadingMessages(true);
-    setError(null);
-    const res = await getThreadMessages(t.id);
-    setLoadingMessages(false);
-    if (res.success && res.messages) {
-      setMessages(res.messages);
-      // Odśwież liczniki po przeczytaniu
-      const s = stateRef.current;
-      setState({
-        ...s,
-        totalUnread: Math.max(0, s.totalUnread - t.unreadCount),
-        threads: s.threads.map((x) => (x.id === t.id ? { ...x, unreadCount: 0 } : x)),
-      });
-      prevUnreadRef.current = stateRef.current.totalUnread;
-    } else {
-      setError(res.error || 'Nie udało się pobrać wiadomości.');
-    }
+    await loadMessages(t.id, true);
   };
 
   const startNewThread = () => {
+    navigationRef.current++;
+    activeThreadRef.current = null;
+    threadRequestRef.current++;
+    setActiveThread(null);
     setView('new');
     setError(null);
     setComposer('');
@@ -162,6 +204,7 @@ export default function FloatingChat({ user }: { user: SessionUser | null }) {
     setError(null);
 
     const threadId = activeThread?.id || null;
+    const navigation = navigationRef.current;
     let departmentId: string | null = null;
 
     if (!threadId && view === 'new') {
@@ -184,6 +227,8 @@ export default function FloatingChat({ user }: { user: SessionUser | null }) {
     });
     setSending(false);
 
+    if (navigation !== navigationRef.current) return;
+
     if (!res.success) {
       setError(res.error || 'Błąd wysyłania.');
       return;
@@ -193,25 +238,14 @@ export default function FloatingChat({ user }: { user: SessionUser | null }) {
     if (res.threadId) {
       if (!threadId) {
         // Nowy wątek - odśwież listę i otwórz
-        await refresh();
-        const created = stateRef.current.threads.find((t) => t.id === res.threadId);
+        const updated = await refresh();
+        if (navigation !== navigationRef.current) return;
+        const created = updated?.threads.find((t) => t.id === res.threadId);
         if (created) await openThread(created);
         else setView('list');
       } else {
-        await openThreadById(res.threadId);
+        if (activeThreadRef.current === res.threadId) await loadMessages(res.threadId);
       }
-    }
-  };
-
-  const openThreadById = async (id: string) => {
-    const t = stateRef.current.threads.find((x) => x.id === id);
-    if (t) {
-      await openThread(t);
-    } else {
-      const s = await getChatState();
-      setState(s);
-      const created = s.threads.find((x) => x.id === id);
-      if (created) await openThread(created);
     }
   };
 
@@ -242,7 +276,11 @@ export default function FloatingChat({ user }: { user: SessionUser | null }) {
       {/* Pływająca ikona chatu */}
       <button
         onClick={() => {
+          navigationRef.current++;
           setOpen(!open);
+          activeThreadRef.current = null;
+          threadRequestRef.current++;
+          setActiveThread(null);
           if (!open) {
             setView('list');
             refresh();
@@ -269,7 +307,7 @@ export default function FloatingChat({ user }: { user: SessionUser | null }) {
           <div className="flex items-center gap-3 px-4 py-3 bg-gradient-to-r from-sky-600 to-blue-700 border-b border-slate-700/50 shrink-0">
             {view === 'thread' && (
               <button
-                onClick={() => { setView('list'); setActiveThread(null); refresh(); }}
+                onClick={() => { navigationRef.current++; activeThreadRef.current = null; threadRequestRef.current++; setView('list'); setActiveThread(null); refresh(); }}
                 className="p-1.5 rounded-lg hover:bg-white/15 transition-colors"
                 aria-label="Wstecz"
               >
@@ -292,7 +330,7 @@ export default function FloatingChat({ user }: { user: SessionUser | null }) {
               </p>
             </div>
             <button
-              onClick={() => setOpen(false)}
+              onClick={() => { navigationRef.current++; activeThreadRef.current = null; threadRequestRef.current++; setActiveThread(null); setView('list'); setOpen(false); }}
               className="p-1.5 rounded-lg hover:bg-white/15 transition-colors"
               aria-label="Zamknij"
             >
@@ -422,7 +460,10 @@ export default function FloatingChat({ user }: { user: SessionUser | null }) {
 
           {view === 'thread' && activeThread && (
             <>
-              <div className="flex-1 overflow-y-auto px-3 py-4 space-y-2" style={{ background: 'radial-gradient(circle at 80% 10%, rgba(56,189,248,0.06), transparent 50%)' }}>
+              <div ref={messagesContainerRef} onScroll={() => {
+                const el = messagesContainerRef.current;
+                if (el) scrollToBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+              }} className="flex-1 overflow-y-auto px-3 py-4 space-y-2" style={{ background: 'radial-gradient(circle at 80% 10%, rgba(56,189,248,0.06), transparent 50%)' }}>
                 {loadingMessages ? (
                   <div className="flex justify-center py-10">
                     <div className="w-8 h-8 border-2 border-sky-500/30 border-t-sky-400 rounded-full animate-spin" />
