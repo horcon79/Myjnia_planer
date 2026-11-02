@@ -453,7 +453,7 @@ export default function FloatingChat({ user }: { user: SessionUser | null }) {
                             </span>
                           </div>
                         )}
-                        <p className={`text-sm whitespace-pre-wrap break-words leading-snug ${m.isMine ? 'text-white' : 'text-slate-100'}`}>
+                        <p className={`select-text text-sm whitespace-pre-wrap break-words leading-snug ${m.isMine ? 'text-white' : 'text-slate-100'}`}>
                           {m.body}
                         </p>
                         <div className={`flex items-center gap-1 mt-1 ${m.isMine ? 'justify-end' : ''}`}>
