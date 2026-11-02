@@ -102,6 +102,12 @@ test('cancelOrder: uprawnienia, audyt i ochrona wydanych zleceń', async () => {
     assert.equal(again.success, true);
     const afterAgain = await prisma.washOrder.findUniqueOrThrow({ where: { id: ownPlanned.id } });
     assert.equal(afterAgain.cancelReason, 'Wydanie odwołane');
+    session.user = { role: 'DEPARTMENT', slug: 'serwis', name: 'Serwis', code: 'SER' };
+    assert.equal((await orders.cancelOrder(ownPlanned.id, {})).success, false);
+    session.user = { role: 'OTHER', slug: 'salon', name: 'Other', code: 'X' };
+    assert.equal((await orders.cancelOrder(ownPlanned.id, {})).success, false);
+    session.user = null;
+    assert.equal((await orders.cancelOrder(ownPlanned.id, {})).success, false);
 
     session.user = { role: 'WASHER', slug: 'myjnia', name: 'Myjnia', code: 'MY' };
     const washerCancel = await orders.cancelOrder(ownInProgress.id, {});
@@ -129,6 +135,57 @@ test('cancelOrder: uprawnienia, audyt i ochrona wydanych zleceń', async () => {
       assignedEmployeeId: employee.id,
     });
     assert.equal(scheduled.success, true);
+
+    // Pause each action immediately before its conditional write and run the competing action.
+    let beforeWrite;
+    const intercepted = new Proxy(prisma, {
+      get(target, key) {
+        if (key === 'washOrder') return new Proxy(target.washOrder, {
+          get(model, operation) {
+            if (operation === 'updateMany') return async (args) => {
+              if (beforeWrite) { const hook = beforeWrite; beforeWrite = null; await hook(); }
+              return model.updateMany(args);
+            };
+            return model[operation];
+          },
+        });
+        return target[key];
+      },
+    });
+    const racing = loadModule('../src/actions/orders.ts', intercepted, session);
+    const departmentSession = { user: { role: 'DEPARTMENT', slug: 'salon', name: 'Salon', code: 'SAL' } };
+    const departmentOrders = loadModule('../src/actions/orders.ts', prisma, departmentSession);
+    for (const action of [
+      (id) => racing.updateOrderStatus(id, 'IN_PROGRESS'),
+      (id) => racing.quickFinishOrder(id),
+      (id) => racing.finishOrderWithNote(id, 'Gotowe'),
+      (id) => racing.scheduleOrder(id, { scheduledStartTime: new Date().toISOString(), isOverCapacity: true }),
+    ]) {
+      const order = await makeOrder({ status: 'PLANNED' });
+      beforeWrite = async () => assert.equal((await departmentOrders.cancelOrder(order.id, { reason: 'Test' })).success, true);
+      assert.equal((await action(order.id)).success, false);
+      const saved = await prisma.washOrder.findUniqueOrThrow({ where: { id: order.id } });
+      assert.equal(saved.status, 'CANCELLED');
+      assert.equal(saved.cancelReason, 'Test');
+      assert.equal(saved.scheduledStartTime, null);
+      assert.equal(saved.startedAt, null);
+      assert.equal(saved.completedAt, null);
+    }
+    const startFirst = await makeOrder({ status: 'PLANNED' });
+    const racingDepartment = loadModule('../src/actions/orders.ts', intercepted, departmentSession);
+    beforeWrite = async () => assert.equal((await orders.updateOrderStatus(startFirst.id, 'IN_PROGRESS')).success, true);
+    assert.equal((await racingDepartment.cancelOrder(startFirst.id, {})).success, false);
+    assert.equal((await prisma.washOrder.findUniqueOrThrow({ where: { id: startFirst.id } })).status, 'IN_PROGRESS');
+
+    const releaseFirst = await makeOrder({ status: 'READY', assignedEmployeeId: employee.id });
+    beforeWrite = async () => assert.equal((await orders.releaseOrder(releaseFirst.id, {
+      employeeId: employee.id, categoryId: category.id, checklistConfirmed: false, checklistMarkdown: '',
+    })).success, true);
+    assert.equal((await racing.cancelOrder(releaseFirst.id, {})).success, false);
+    assert.equal((await prisma.washOrder.findUniqueOrThrow({ where: { id: releaseFirst.id } })).status, 'COMPLETED');
+    assert.equal((await orders.releaseOrder(ownPlanned.id, {
+      employeeId: employee.id, categoryId: category.id, checklistConfirmed: false, checklistMarkdown: '',
+    })).success, false);
   } finally {
     await prisma.$disconnect();
     rmSync(directory, { recursive: true, force: true });

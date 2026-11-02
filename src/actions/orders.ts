@@ -416,9 +416,13 @@ export async function updateOrderStatus(
       dataToUpdate.completedAt = new Date();
     }
 
-    const updated = await prisma.washOrder.update({
-      where: { id: orderId },
+    const changed = await prisma.washOrder.updateMany({
+      where: { id: orderId, status: current.status },
       data: dataToUpdate,
+    });
+    if (changed.count !== 1) return { success: false, error: 'Zlecenie uległo zmianie. Odśwież widok i spróbuj ponownie.' };
+    const updated = await prisma.washOrder.findUniqueOrThrow({
+      where: { id: orderId },
       include: {
         department: true,
         category: true,
@@ -454,28 +458,26 @@ export async function cancelOrder(orderId: string, input?: { reason?: string }) 
     });
     if (!order) return { success: false, error: 'Nie znaleziono zlecenia.' };
 
-    // Idempotencja: powtórne anulowanie nie jest błędem.
-    if (order.status === 'CANCELLED') {
-      return { success: true, order };
-    }
-    if (order.status === 'COMPLETED') {
-      return { success: false, error: 'Wydanego zlecenia nie można anulować.' };
-    }
-
     if (user.role === 'DEPARTMENT') {
       if (order.department.slug !== user.slug) {
         return { success: false, error: 'Możesz anulować tylko zlecenia własnego działu.' };
-      }
-      if (order.status !== 'PLANNED') {
-        return { success: false, error: 'Zlecenie jest już w realizacji - anulowanie zgłoś do myjni.' };
       }
     } else if (user.role !== 'WASHER' && user.role !== 'ADMIN') {
       return { success: false, error: 'Brak uprawnień do anulowania zlecenia.' };
     }
 
-    // Warunkowy zapis chroni przed wyścigiem z wydaniem pojazdu (READY -> COMPLETED).
+    // Idempotencja jest dostępna tylko dla uprawnionych użytkowników.
+    if (order.status === 'CANCELLED') return { success: true, order };
+    if (order.status === 'COMPLETED') {
+      return { success: false, error: 'Wydanego zlecenia nie można anulować.' };
+    }
+    if (user.role === 'DEPARTMENT' && order.status !== 'PLANNED') {
+      return { success: false, error: 'Zlecenie jest już w realizacji - anulowanie zgłoś do myjni.' };
+    }
+
+    // Status i dział muszą pozostać zgodne z danymi użytymi do autoryzacji.
     const changed = await prisma.washOrder.updateMany({
-      where: { id: orderId, status: order.status },
+      where: { id: orderId, status: order.status, departmentId: order.departmentId },
       data: {
         status: 'CANCELLED',
         cancelledAt: new Date(),
@@ -639,8 +641,8 @@ export async function scheduleOrder(
       if (capacityError) return { success: false, error: capacityError };
     }
 
-    const updated = await prisma.washOrder.update({
-      where: { id: orderId },
+    const changed = await prisma.washOrder.updateMany({
+      where: { id: orderId, status: current.status },
       data: {
         scheduledStartTime: start,
         scheduledEndTime: end,
@@ -648,6 +650,10 @@ export async function scheduleOrder(
         assignedEmployeeId: data.assignedEmployeeId,
         isOverCapacity: data.isOverCapacity ?? false,
       },
+    });
+    if (changed.count !== 1) return { success: false, error: 'Zlecenie uległo zmianie. Odśwież widok i spróbuj ponownie.' };
+    const updated = await prisma.washOrder.findUniqueOrThrow({
+      where: { id: orderId },
       include: {
         department: true,
         category: true,
@@ -720,9 +726,13 @@ export async function finishOrderWithNote(orderId: string, note?: string) {
       ...(trimmed ? { notes: trimmed } : {}),
     };
 
-    const updated = await prisma.washOrder.update({
-      where: { id: orderId },
+    const changed = await prisma.washOrder.updateMany({
+      where: { id: orderId, status: current.status },
       data: dataToUpdate,
+    });
+    if (changed.count !== 1) return { success: false, error: 'Zlecenie uległo zmianie. Odśwież widok i spróbuj ponownie.' };
+    const updated = await prisma.washOrder.findUniqueOrThrow({
+      where: { id: orderId },
       include: {
         department: true,
         category: true,
