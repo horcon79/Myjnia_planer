@@ -9,8 +9,6 @@ import vm from 'node:vm';
 import ts from 'typescript';
 import { PrismaClient } from '@prisma/client';
 
-const SHIFT_MAX_MS = 9 * 60 * 60 * 1000;
-
 function transpile(relativePath) {
   const source = readFileSync(new URL(relativePath, import.meta.url), 'utf8');
   return ts.transpileModule(source, {
@@ -18,9 +16,23 @@ function transpile(relativePath) {
   }).outputText;
 }
 
+function loadPlannerModule() {
+  const js = transpile('../src/lib/planner.ts');
+  const exportsObject = {};
+  vm.runInNewContext(js, {
+    exports: exportsObject,
+    console: { error() {}, warn() {}, log() {} },
+    require: (id) => {
+      throw new Error(`Unexpected import in planner: ${id}`);
+    },
+  });
+  return exportsObject;
+}
+
 function loadModule(relativePath, prisma, session) {
   const js = transpile(relativePath);
   const exportsObject = {};
+  const planner = loadPlannerModule();
   vm.runInNewContext(js, {
     exports: exportsObject,
     console: { error() {}, warn() {}, log() {} },
@@ -28,7 +40,7 @@ function loadModule(relativePath, prisma, session) {
       if (id === '@/lib/prisma') return { prisma };
       if (id === '@/actions/auth') return { getCurrentUser: async () => session.user };
       if (id === 'next/cache') return { revalidatePath() {} };
-      if (id === '@/lib/planner') return { SHIFT_MAX_MS };
+      if (id === '@/lib/planner') return planner;
       throw new Error(`Unexpected import: ${id}`);
     },
   });
@@ -117,6 +129,109 @@ test('cancelOrder: uprawnienia, audyt i ochrona wydanych zleceń', async () => {
       assignedEmployeeId: employee.id,
     });
     assert.equal(scheduled.success, true);
+  } finally {
+    await prisma.$disconnect();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('createOrder/scheduleOrder: serwer pilnuje terminu gotowości i zdolności', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'kilo', 'capacity-'));
+  const url = `file:${join(directory, 'test.db').replaceAll('\\', '/')}`;
+  const prisma = new PrismaClient({ datasources: { db: { url } } });
+  const session = { user: { role: 'ADMIN', slug: 'admin', name: 'Admin', code: 'ADM' } };
+
+  try {
+    execFileSync(process.execPath, [
+      fileURLToPath(import.meta.resolve('prisma/build/index.js')),
+      'db', 'push', '--skip-generate', '--schema', fileURLToPath(new URL('../prisma/schema.prisma', import.meta.url)),
+    ], { env: { ...process.env, DATABASE_URL: url }, stdio: 'pipe' });
+
+    const orders = loadModule('../src/actions/orders.ts', prisma, session);
+
+    const department = await prisma.department.create({ data: { name: 'Salon', slug: 'salon', code: 'SAL', color: '#fff' } });
+    const longCategory = await prisma.washCategory.create({ data: { name: 'Przygotowanie 2h', defaultDurationMin: 120 } });
+    const shortCategory = await prisma.washCategory.create({ data: { name: 'Szybkie 40m', defaultDurationMin: 40 } });
+
+    const base = new Date();
+    base.setDate(base.getDate() + 1);
+    base.setHours(8, 0, 0, 0);
+    const targetReady = new Date(base.getTime() + 120 * 60000);
+
+    const lateTest = await orders.createOrder({
+      licensePlate: 'LATE001',
+      carType: 'PASSENGER',
+      departmentId: department.id,
+      categoryId: longCategory.id,
+      targetReadyTime: targetReady.toISOString(),
+    });
+    assert.equal(lateTest.success, true);
+
+    // Start po terminie gotowości jest odrzucany, chyba że użyto override.
+    const lateStart = new Date(targetReady.getTime() + 30 * 60000);
+    const late = await orders.scheduleOrder(lateTest.order.id, {
+      scheduledStartTime: lateStart.toISOString(),
+      durationMin: 30,
+    });
+    assert.equal(late.success, false);
+    assert.match(late.error, /po terminie gotowości/);
+
+    const lateOverride = await orders.scheduleOrder(lateTest.order.id, {
+      scheduledStartTime: lateStart.toISOString(),
+      durationMin: 30,
+      isOverCapacity: true,
+    });
+    assert.equal(lateOverride.success, true);
+
+    // Zlecenie zajmuje 08:00-10:00. Przy limicie 1 stanowiska kolejne auto w tym oknie nie wejdzie.
+    const occupied = await orders.createOrder({
+      licensePlate: 'OCC001',
+      carType: 'PASSENGER',
+      departmentId: department.id,
+      categoryId: longCategory.id,
+      targetReadyTime: targetReady.toISOString(),
+    });
+    assert.equal(occupied.success, true);
+
+    for (const [key, value] of [
+      ['ALLOW_OVER_CAPACITY', 'false'],
+      ['MAX_SIMULTANEOUS_CARS', '1'],
+    ]) {
+      await prisma.appSetting.upsert({ where: { key }, update: { value }, create: { key, value } });
+    }
+
+    const overlap = await orders.createOrder({
+      licensePlate: 'OVR001',
+      carType: 'PASSENGER',
+      departmentId: department.id,
+      categoryId: longCategory.id,
+      targetReadyTime: new Date(base.getTime() + 60 * 60000).toISOString(),
+    });
+    assert.equal(overlap.success, false);
+    assert.match(overlap.error, /Brak wolnych stanowisk/);
+
+    // Po zakończeniu wszystkich zajętych okien zdolność jest znowu wolna.
+    const after = await orders.createOrder({
+      licensePlate: 'AFT001',
+      carType: 'PASSENGER',
+      departmentId: department.id,
+      categoryId: longCategory.id,
+      targetReadyTime: new Date(base.getTime() + 5 * 60 * 60000).toISOString(),
+    });
+    assert.equal(after.success, true);
+
+    // Quick-add: gotowość = start + czas usługi, więc walidacja terminu przechodzi.
+    const quickStart = new Date(base.getTime() + 7 * 60 * 60000);
+    const quickAdd = await orders.createOrder({
+      licensePlate: 'QCK001',
+      carType: 'PASSENGER',
+      departmentId: department.id,
+      categoryId: shortCategory.id,
+      targetReadyTime: new Date(quickStart.getTime() + 40 * 60000).toISOString(),
+      scheduledStartTime: quickStart.toISOString(),
+      enteredByWash: true,
+    });
+    assert.equal(quickAdd.success, true);
   } finally {
     await prisma.$disconnect();
     rmSync(directory, { recursive: true, force: true });

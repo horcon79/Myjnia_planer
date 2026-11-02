@@ -13,7 +13,7 @@ import {
   cancelOrder
 } from '@/actions/orders';
 import { setShiftRoster } from '@/actions/shifts';
-import { isQueueOrder, isActiveShiftEntry } from '@/lib/planner';
+import { isQueueOrder, isActiveShiftEntry, getLatestArrivalTime, getOrderLatestArrivalTime } from '@/lib/planner';
 import { 
   Calendar, 
   ChevronLeft, 
@@ -272,6 +272,12 @@ export default function PlannerBoard({
       return false;
     }
   }, [editingOrder, modalScheduleDate, modalScheduleTime, modalDuration]);
+
+  // Najpóźniejszy przyjazd dla aktualnie ustawianego czasu i czasu trwania w modalu.
+  const modalLatestArrival = useMemo(() => {
+    if (!editingOrder) return null;
+    return getLatestArrivalTime(editingOrder.targetReadyTime, modalDuration, 30);
+  }, [editingOrder, modalDuration]);
 
   // Helper: rounded current time (e.g. 17:55 -> 18:00, 14:10 -> 14:00/14:30)
   const getRoundedCurrentTime = (intervalMinutes: number = 30) => {
@@ -609,10 +615,16 @@ export default function PlannerBoard({
     const [h, m] = dropConfirm.newTime.split(':').map(Number);
     const start = new Date(dropConfirm.newDate);
     start.setHours(h, m, 0, 0);
-    await scheduleOrder(dropConfirm.order.id, {
+    const res = await scheduleOrder(dropConfirm.order.id, {
       scheduledStartTime: start.toISOString(),
       assignedEmployeeId: dropConfirm.newEmployeeId,
     });
+    if (!res.success) {
+      showActionError(res.error || 'Nie udało się zmienić terminu.');
+      setDropConfirm(null);
+      fetchDayOrders();
+      return;
+    }
     setDropConfirm(null);
     fetchDayOrders();
   };
@@ -1539,6 +1551,7 @@ export default function PlannerBoard({
                     const isReady = ord.status === 'READY';
                     const isInProgress = ord.status === 'IN_PROGRESS';
                     const isCompleted = ord.status === 'COMPLETED';
+                    const latestArrival = getOrderLatestArrivalTime(ord, 30);
                     const laneWidth = 100 / layout.laneCount;
                     const cardTop = layout.startIdx * SLOT_STEP;
                     const cardHeight = Math.max(SLOT_HEIGHT, layout.numSlots * SLOT_STEP - SLOT_GAP);
@@ -1674,7 +1687,10 @@ export default function PlannerBoard({
                                   ⚡EKSP
                                 </span>
                               )}
-                              <span className="ml-auto font-bold text-sky-400 text-[9px] flex-shrink-0">⏱ {ord.durationMin}m</span>
+                              <span
+                                className="ml-auto font-bold text-sky-400 text-[9px] flex-shrink-0"
+                                title={latestArrival ? `Najpóźniej na myjni: ${format(latestArrival, 'HH:mm')}` : undefined}
+                              >⏱ {ord.durationMin}m</span>
                             </div>
 
                             <div className="flex items-center justify-between gap-1 mt-0.5">
@@ -1777,7 +1793,10 @@ export default function PlannerBoard({
                               <span className="font-bold text-sky-300 truncate">
                                 {ord.category?.name}
                               </span>
-                              <span className="font-bold text-sky-400 flex-shrink-0 ml-1">⏱ {ord.durationMin}m</span>
+                              <span
+                                className="font-bold text-sky-400 flex-shrink-0 ml-1"
+                                title={latestArrival ? `Najpóźniej na myjni: ${format(latestArrival, 'HH:mm')}` : undefined}
+                              >⏱ {ord.durationMin}m</span>
                             </div>
 
                             {/* Compact action buttons (overlapping card) */}
@@ -1920,6 +1939,14 @@ export default function PlannerBoard({
                               Cel: {format(new Date(ord.targetReadyTime), 'd MMM HH:mm', { locale: pl })}
                             </span>
                           </div>
+                          {latestArrival && (
+                            <div className="flex items-center justify-between gap-1 text-[10px] pt-0.5">
+                              <span className="text-slate-400 font-semibold">Na myjni do:</span>
+                              <span className="font-mono font-bold text-sky-300">
+                                {format(latestArrival, 'HH:mm')}
+                              </span>
+                            </div>
+                          )}
                         </div>
 
                         {/* Note from wash bay */}
@@ -2643,6 +2670,19 @@ export default function PlannerBoard({
                   </div>
                 </div>
 
+                <div className={`rounded-xl border p-2.5 text-[10px] ${isModalScheduleLate ? 'border-rose-500/60 bg-rose-950/40 text-rose-200' : 'border-sky-500/30 bg-sky-950/30 text-sky-200'}`}>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-black uppercase tracking-wider">Najpóźniej na myjni</span>
+                    <span className="font-mono font-black text-sm">
+                      {modalLatestArrival ? format(modalLatestArrival, 'HH:mm') : '—'}
+                    </span>
+                  </div>
+                  <p className="mt-0.5 text-slate-300">
+                    Usługa {modalDuration} min. Auto musi być na myjni do tej godziny, aby oddać je na{' '}
+                    {format(new Date(editingOrder.targetReadyTime), 'HH:mm', { locale: pl })}.
+                  </p>
+                </div>
+
                 <div>
                   <label className="flex items-center gap-2 p-2 rounded-xl bg-slate-950 border border-slate-800 cursor-pointer">
                     <input
@@ -2858,7 +2898,13 @@ export default function PlannerBoard({
                   return;
                 }
 
-                const targetDate = new Date(startDate.getTime() + 60 * 60000);
+                const category = categories.find((c) => c.id === catId);
+                if (!category) {
+                  setQuickAddError('Wybierz usługę mycia.');
+                  return;
+                }
+                const quickAddDuration = category.defaultDurationMin || 30;
+                const targetDate = new Date(startDate.getTime() + quickAddDuration * 60000);
 
                 try {
                   const res = await createOrder({
@@ -2970,6 +3016,10 @@ export default function PlannerBoard({
                   />
                 </div>
               </div>
+
+              <p className="text-[10px] text-slate-400">
+                Termin gotowości zostanie wyliczony jako godzina startu + czas wybranej usługi.
+              </p>
 
               {quickAddError && (
                 <p role="alert" className="rounded-xl border border-rose-700 bg-rose-950/50 p-3 text-xs font-bold text-rose-200">
