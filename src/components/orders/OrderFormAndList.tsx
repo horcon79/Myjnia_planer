@@ -882,7 +882,7 @@ export default function OrderFormAndList({
 
               {/* Date selection shortcuts */}
               <div>
-                <span className="text-[10px] text-slate-400 uppercase font-bold block mb-1">
+                <span className="text-xs text-slate-400 uppercase font-bold block mb-1">
                   1. Dzień Gotowości:
                 </span>
                 <div className="flex flex-wrap items-center gap-1.5 mb-1.5">
@@ -943,7 +943,7 @@ export default function OrderFormAndList({
                     }}
                     className="px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-white font-mono text-xs focus:outline-none focus:border-sky-500"
                   />
-                  <span className="text-[10px] text-slate-400">
+                  <span className="text-xs text-slate-400">
                     {format(new Date(targetReadyDate), 'EEEE, d MMMM', { locale: pl })}
                   </span>
                 </div>
@@ -952,11 +952,11 @@ export default function OrderFormAndList({
               {/* Time selection */}
               <div className="pt-2 border-t border-slate-800/80">
                 <div className="flex items-center justify-between mb-1.5">
-                  <span className="text-[10px] text-slate-400 uppercase font-bold">
+                  <span className="text-xs text-slate-400 uppercase font-bold">
                     2. Godzina Gotowości ({format(new Date(targetReadyDate), 'd MMM', { locale: pl })}):
                   </span>
                   {targetReadyDate === todayStr && (
-                    <span className="text-[9px] text-sky-400 font-semibold">
+                    <span className="text-[11px] text-sky-400 font-semibold">
                       Min. dziś: {earliestFeasibleHourToday}
                     </span>
                   )}
@@ -970,7 +970,7 @@ export default function OrderFormAndList({
                     onChange={(e) => setTargetHour(e.target.value)}
                     className="px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-white font-mono text-sm font-bold focus:outline-none focus:border-sky-500"
                   />
-                  <span className="text-[11px] text-amber-300 font-semibold truncate">
+                  <span className="text-xs text-amber-300 font-semibold truncate">
                     Gotowe na: <strong>{targetHour}</strong> ({format(new Date(targetReadyDate), 'd MMM', { locale: pl })})
                   </span>
                 </div>
@@ -983,17 +983,17 @@ export default function OrderFormAndList({
                       <div>
                         <div className="text-xs font-black text-rose-300 flex items-center gap-1.5 flex-wrap">
                           <span>Godzina {targetHour} jest już w 100% zapełniona</span>
-                          <span className="px-1.5 py-0.2 rounded bg-rose-500/30 text-rose-300 border border-rose-500/40 font-mono text-[9px]">
+                          <span className="px-1.5 py-0.2 rounded bg-rose-500/30 text-rose-300 border border-rose-500/40 font-mono text-[11px]">
                             {selectedSlotStatus.usedCapacity}/{selectedSlotStatus.totalCapacity} aut
                           </span>
                         </div>
-                        <p className="text-[10px] text-rose-200/90 font-normal mt-0.5 leading-tight">
+                        <p className="text-xs text-rose-200/90 font-normal mt-0.5 leading-tight">
                           Zlecenie trafi do kolejki jako oczekujące i może być zrealizowane z opóźnieniem.
                         </p>
                       </div>
                     </div>
                     {selectedSlotStatus.suggestedAlternativeHour && (
-                      <div className="flex items-center justify-between pt-1.5 border-t border-rose-500/30 text-[10px] flex-wrap gap-1">
+                      <div className="flex items-center justify-between pt-1.5 border-t border-rose-500/30 text-xs flex-wrap gap-1">
                         <span className="text-amber-300 font-semibold flex items-center gap-1">
                           <Sparkles className="w-3 h-3 text-amber-400" />
                           Wolny termin: <strong className="text-white font-mono">{selectedSlotStatus.suggestedAlternativeHour}</strong>
@@ -1001,7 +1001,7 @@ export default function OrderFormAndList({
                         <button
                           type="button"
                           onClick={() => setTargetHour(selectedSlotStatus.suggestedAlternativeHour!)}
-                          className="px-2 py-0.5 rounded bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-[9px] flex items-center gap-1 transition-colors"
+                          className="px-2 py-0.5 rounded bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs flex items-center gap-1 transition-colors"
                         >
                           Zmień na {selectedSlotStatus.suggestedAlternativeHour}
                         </button>

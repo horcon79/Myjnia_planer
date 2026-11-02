@@ -200,12 +200,12 @@ export default function TimeSlotAvailabilityGrid({
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1.5 border-b border-slate-800/80 pb-2">
         <div className="flex items-center gap-1.5">
           <Clock className="w-3.5 h-3.5 text-sky-400" />
-          <span className="text-[11px] font-bold text-slate-200 uppercase tracking-wider">
+          <span className="text-xs font-bold text-slate-200 uppercase tracking-wider">
             Wolne sloty gotowości ({format(new Date(targetReadyDate), 'd MMM', { locale: pl })})
           </span>
         </div>
 
-        <div className="flex items-center gap-1.5 text-[10px]">
+        <div className="flex items-center gap-1.5 text-xs">
           {isToday && (
             <span className="px-1.5 py-0.2 rounded bg-sky-500/10 text-sky-300 font-semibold border border-sky-500/20 flex items-center gap-1">
               <Sparkles className="w-2.5 h-2.5 text-sky-400" />
@@ -223,13 +223,13 @@ export default function TimeSlotAvailabilityGrid({
         <div className="p-2.5 rounded-xl bg-amber-950/40 border border-amber-500/30 text-amber-200 text-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
           <div className="flex items-center gap-1.5">
             <AlertTriangle className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" />
-            <span className="text-[11px]">Wszystkie okna robocze na dziś już upłynęły.</span>
+            <span className="text-xs">Wszystkie okna robocze na dziś już upłynęły.</span>
           </div>
           {onSwitchToTomorrow && (
             <button
               type="button"
               onClick={onSwitchToTomorrow}
-              className="px-2.5 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-[10px] flex items-center gap-1 transition-colors"
+              className="px-2.5 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs flex items-center gap-1 transition-colors"
             >
               <SunMedium className="w-3 h-3" />
               <span>Przełącz na jutro</span>
@@ -283,7 +283,7 @@ export default function TimeSlotAvailabilityGrid({
                 }
               >
                 <div className="flex items-center justify-between">
-                  <span className={`text-[11px] font-mono font-extrabold ${slot.isSelected ? 'text-sky-300' : ''}`}>
+                  <span className={`text-sm font-mono font-extrabold ${slot.isSelected ? 'text-sky-300' : ''}`}>
                     {slot.timeStr}
                   </span>
                   {slot.isSelected && (
@@ -292,7 +292,7 @@ export default function TimeSlotAvailabilityGrid({
                 </div>
 
                 <span
-                  className={`text-[8px] font-bold px-1 py-0.2 rounded border inline-block text-center leading-tight truncate ${badgeColor}`}
+                  className={`text-[11px] font-bold px-1 py-0.2 rounded border inline-block text-center leading-tight truncate ${badgeColor}`}
                 >
                   {badgeText}
                 </span>
@@ -304,7 +304,7 @@ export default function TimeSlotAvailabilityGrid({
 
       {/* Przełącznik zwijania przeszłych godzin (dla dzisiejszego dnia) */}
       {isToday && pastSlots.length > 0 && (
-        <div className="pt-1 flex items-center justify-between text-[11px] border-t border-slate-800/60 mt-2">
+        <div className="pt-1 flex flex-wrap gap-1 items-center justify-between text-xs border-t border-slate-800/60 mt-2">
           <button
             type="button"
             onClick={() => setShowPastSlots((prev) => !prev)}
@@ -323,7 +323,7 @@ export default function TimeSlotAvailabilityGrid({
             )}
           </button>
 
-          <span className="text-[10px] text-slate-500">
+          <span className="text-xs text-slate-400">
             Aktualizacja na żywo co 15s
           </span>
         </div>
