@@ -37,13 +37,15 @@ export interface ExpressAuditOrder {
   completedAt: string | null;
   targetReadyTime: string;
   status: string;
-  assignedEmployeeName: string | null;
+  assignedEmployeeNames: string[];
 }
+
+export type EmployeeReportRow = Omit<ReportRow, 'totalDurationMin'>;
 
 export interface WashReport {
   dateFrom: string;
   dateTo: string;
-  employees: ReportRow[];
+  employees: EmployeeReportRow[];
   departments: ReportRow[];
   totalCount: number;
   totalDurationMin: number;
@@ -70,7 +72,7 @@ export async function getWashReport(dateFrom: string, dateTo: string): Promise<{
       where: { status: { in: ['READY', 'COMPLETED'] } },
       include: {
         department: true,
-        assignedEmployee: true,
+        assignedEmployees: { include: { employee: true } },
       },
     });
 
@@ -92,7 +94,7 @@ export async function getWashReport(dateFrom: string, dateTo: string): Promise<{
       },
       include: {
         department: true,
-        assignedEmployee: true,
+        assignedEmployees: { include: { employee: true } },
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -112,10 +114,10 @@ export async function getWashReport(dateFrom: string, dateTo: string): Promise<{
       completedAt: o.completedAt?.toISOString() || null,
       targetReadyTime: o.targetReadyTime.toISOString(),
       status: o.status,
-      assignedEmployeeName: o.assignedEmployee?.name || null,
+      assignedEmployeeNames: o.assignedEmployees.map(({ employee }) => employee.name),
     }));
 
-    const empMap = new Map<string, ReportRow>();
+    const empMap = new Map<string, EmployeeReportRow>();
     const deptMap = new Map<string, ReportRow>();
 
     const EMPTY_EMP_ID = '__none__';
@@ -132,25 +134,26 @@ export async function getWashReport(dateFrom: string, dateTo: string): Promise<{
       if (o.enteredByWash) enteredByWashCount += 1;
       if (o.isPriority) totalExpressCount += 1;
 
-      const empId = o.assignedEmployeeId || EMPTY_EMP_ID;
-      if (!empMap.has(empId)) {
-        empMap.set(empId, {
-          id: empId,
-          name: o.assignedEmployee?.name || 'Bez przypisanego pracownika',
-          code: o.assignedEmployee?.shortName || '—',
-          color: o.assignedEmployee?.color || '#64748b',
-          count: 0,
-          totalDurationMin: 0,
-          enteredByWashCount: 0,
-          expressCount: 0,
-          expressSharePercent: 0,
-        });
+      const employees = o.assignedEmployees.length ? o.assignedEmployees.map(({ employee }) => employee) : [null];
+      for (const employee of employees) {
+        const empId = employee?.id || EMPTY_EMP_ID;
+        if (!empMap.has(empId)) {
+          empMap.set(empId, {
+            id: empId,
+            name: employee?.name || 'Bez przypisanego pracownika',
+            code: employee?.shortName || '—',
+            color: employee?.color || '#64748b',
+            count: 0,
+            enteredByWashCount: 0,
+            expressCount: 0,
+            expressSharePercent: 0,
+          });
+        }
+        const empRow = empMap.get(empId)!;
+        empRow.count += 1;
+        if (o.enteredByWash) empRow.enteredByWashCount += 1;
+        if (o.isPriority) empRow.expressCount += 1;
       }
-      const empRow = empMap.get(empId)!;
-      empRow.count += 1;
-      empRow.totalDurationMin += o.durationMin || 0;
-      if (o.enteredByWash) empRow.enteredByWashCount += 1;
-      if (o.isPriority) empRow.expressCount += 1;
 
       const deptId = o.departmentId || EMPTY_DEPT_ID;
       if (!deptMap.has(deptId)) {
@@ -183,7 +186,7 @@ export async function getWashReport(dateFrom: string, dateTo: string): Promise<{
 
     const sortByCountDesc = (a: ReportRow, b: ReportRow) => b.count - a.count || b.totalDurationMin - a.totalDurationMin;
 
-    const employees = Array.from(empMap.values()).sort(sortByCountDesc);
+    const employees = Array.from(empMap.values()).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name, 'pl'));
     const departments = Array.from(deptMap.values()).sort(sortByCountDesc);
 
     const totalExpressShare = totalCount > 0 ? Math.round((totalExpressCount / totalCount) * 100) : 0;

@@ -75,7 +75,7 @@ function resolveDurationMs(
   durationMin: number | null | undefined,
   fallbackDurationMin: number,
 ): number {
-  const candidate = Number.isFinite(durationMin) ? Number(durationMin) : fallbackDurationMin;
+  const candidate = Number.isFinite(durationMin) && Number(durationMin) > 0 ? Number(durationMin) : fallbackDurationMin;
   return Math.max(0, candidate) * 60000;
 }
 
@@ -141,18 +141,30 @@ export function computeSlotUsage(
     : 1.5;
   const fallbackDurationMin = options.fallbackDurationMin ?? DEFAULT_SERVICE_DURATION_MIN;
   const conflicts: SlotUsageConflict[] = [];
-  let usedCapacity = 0;
+  const events: { time: number; weight: number }[] = [];
+  const seen = new Set<string>();
 
   for (const order of orders) {
     if (order.status === 'COMPLETED' || order.status === 'CANCELLED') continue;
+    if (order.id && seen.has(order.id)) continue;
     const window = getOrderServiceWindow(order, fallbackDurationMin);
     if (!window) continue;
     const overlaps = window.startMs < slotEndMs && window.endMs > slotStartMs;
     if (!overlaps) continue;
 
-    usedCapacity += order.carType === 'DELIVERY' ? deliveryCarWeight : 1;
+    if (order.id) seen.add(order.id);
+    const weight = order.carType === 'DELIVERY' ? deliveryCarWeight : 1;
+    events.push({ time: Math.max(window.startMs, slotStartMs), weight });
+    events.push({ time: Math.min(window.endMs, slotEndMs), weight: -weight });
     conflicts.push({ order, window });
   }
 
+  events.sort((a, b) => a.time - b.time || a.weight - b.weight);
+  let current = 0;
+  let usedCapacity = 0;
+  for (const event of events) {
+    current += event.weight;
+    usedCapacity = Math.max(usedCapacity, current);
+  }
   return { usedCapacity, activeOrdersCount: conflicts.length, conflicts };
 }

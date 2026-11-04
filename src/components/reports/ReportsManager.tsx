@@ -125,13 +125,12 @@ export default function ReportsManager() {
       emp.name,
       emp.code,
       emp.count,
-      formatDuration(emp.totalDurationMin),
       report.totalCount > 0 ? `${((emp.count / report.totalCount) * 100).toFixed(1)}%` : '0%',
     ]);
     exportTableToExcel(
       `raport_pracownicy_${report.dateFrom}_${report.dateTo}.xls`,
-      'Ilość myć wg pracowników',
-      ['Pracownik', 'Skrót', 'Liczba myć', 'Czas łączny', 'Udział %'],
+      'Udział pracowników w zleceniach',
+      ['Pracownik', 'Skrót', 'Liczba zleceń z udziałem', 'Odsetek wszystkich zleceń (udziały mogą się nakładać)'],
       rows
     );
   };
@@ -152,7 +151,7 @@ export default function ReportsManager() {
     exportTableToExcel(
       `raport_dzialy_${report.dateFrom}_${report.dateTo}.xls`,
       'Ilość myć wg działów i audyt ekspresów',
-      ['Dział', 'Kod', 'Liczba myć', 'Czas łączny', 'Udział w myjni %', 'Liczba Ekspres (Wrzutki)', 'Ekspresy % w dziale', 'Wprowadzone przez myjnię', 'Wpisy myjni %'],
+      ['Dział', 'Kod', 'Liczba myć', 'Suma planowanego czasu zleceń', 'Udział w myjni %', 'Liczba Ekspres (Wrzutki)', 'Ekspresy % w dziale', 'Wprowadzone przez myjnię', 'Wpisy myjni %'],
       rows
     );
   };
@@ -168,13 +167,13 @@ export default function ReportsManager() {
       ord.priorityAuthorizer || 'Brak danych',
       ord.priorityReason || 'Wydanie natychmiastowe',
       ord.status === 'COMPLETED' ? 'Wydane' : ord.status === 'READY' ? 'Gotowe' : ord.status === 'IN_PROGRESS' ? 'W trakcie' : 'W kolejce',
-      ord.assignedEmployeeName || '—',
+      ord.assignedEmployeeNames.join(', ') || '—',
       ord.completedAt ? format(new Date(ord.completedAt), 'yyyy-MM-dd HH:mm') : '—',
     ]);
     exportTableToExcel(
       `audit_log_ekspres_${report.dateFrom}_${report.dateTo}.xls`,
       'Rejestr Audytowy Zleceń Ekspresowych (Dla Dyrekcji)',
-      ['Data zgłoszenia', 'Nr Zlecenia', 'Nr Rejestracyjny', 'Model', 'Dział', 'Osoba Decyzyjna (Zatwierdzający)', 'Uzasadnienie wrzutki', 'Status', 'Pracownik myjący', 'Zakończono'],
+      ['Data zgłoszenia', 'Nr Zlecenia', 'Nr Rejestracyjny', 'Model', 'Dział', 'Osoba Decyzyjna (Zatwierdzający)', 'Uzasadnienie wrzutki', 'Status', 'Przypisani wykonawcy', 'Zakończono'],
       rows
     );
   };
@@ -316,7 +315,7 @@ export default function ReportsManager() {
                 <Clock className="w-6 h-6" />
               </div>
               <div>
-                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Łączny czas mycia</p>
+                <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Suma planowanego czasu zleceń</p>
                 <p className="text-2xl font-black text-white">{formatDuration(report.totalDurationMin)}</p>
               </div>
             </div>
@@ -400,7 +399,7 @@ export default function ReportsManager() {
                   <tr className="text-left text-[10px] uppercase tracking-wider text-slate-400 border-b border-slate-800">
                     <th className="py-2.5 pr-3 font-bold">Dział</th>
                     <th className="py-2.5 pr-3 font-bold text-right">Liczba myć</th>
-                    <th className="py-2.5 pr-3 font-bold text-right">Czas łączny</th>
+                    <th className="py-2.5 pr-3 font-bold text-right">Planowany czas zleceń</th>
                     <th className="py-2.5 pr-3 font-bold text-right text-amber-400">Zlecenia Ekspres (Wrzutki)</th>
                     <th className="py-2.5 pr-3 font-bold text-right text-amber-300/80">% Ekspresów</th>
                     <th className="py-2.5 pr-3 font-bold text-right" title="Auta wpisane ręcznie przez myjnię — bez planowania działu">
@@ -586,8 +585,8 @@ export default function ReportsManager() {
                   <Users className="w-5 h-5" />
                 </div>
                 <div>
-                  <h2 className="font-black text-white">Ilość myć wg pracowników</h2>
-                  <p className="text-[11px] text-slate-400">Wykonane mycia w zadanym okresie</p>
+                  <h2 className="font-black text-white">Udział pracowników w zleceniach</h2>
+                  <p className="text-[11px] text-slate-400">Każdy przypisany pracownik jest liczony osobno. Udziały mogą się nakładać i nie oznaczają czasu pracy.</p>
                 </div>
               </div>
               <button
@@ -604,15 +603,14 @@ export default function ReportsManager() {
                 <thead>
                   <tr className="text-left text-[10px] uppercase tracking-wider text-slate-400 border-b border-slate-800">
                     <th className="py-2.5 pr-3 font-bold">Pracownik</th>
-                    <th className="py-2.5 pr-3 font-bold text-right">Liczba myć</th>
-                    <th className="py-2.5 pr-3 font-bold text-right">Czas łączny</th>
-                    <th className="py-2.5 pr-3 font-bold text-right">Udział</th>
+                    <th className="py-2.5 pr-3 font-bold text-right">Zlecenia z udziałem</th>
+                    <th className="py-2.5 pr-3 font-bold text-right">Odsetek wszystkich zleceń</th>
                   </tr>
                 </thead>
                 <tbody>
                   {report.employees.length === 0 && (
                     <tr>
-                      <td colSpan={4} className="py-8 text-center text-slate-500">
+                      <td colSpan={3} className="py-8 text-center text-slate-500">
                         Brak myć w wybranym okresie.
                       </td>
                     </tr>
@@ -633,7 +631,6 @@ export default function ReportsManager() {
                       <td className="py-3 pr-3 text-right">
                         <span className="font-mono font-black text-emerald-400">{emp.count}</span>
                       </td>
-                      <td className="py-3 pr-3 text-right text-slate-300 text-xs">{formatDuration(emp.totalDurationMin)}</td>
                       <td className="py-3 text-right">
                         <span className="text-xs font-bold text-slate-300">
                           {report.totalCount > 0 ? `${((emp.count / report.totalCount) * 100).toFixed(1)}%` : '0%'}

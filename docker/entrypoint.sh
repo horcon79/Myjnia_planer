@@ -15,6 +15,11 @@ if [ -z "$DB_FILE" ] || [ ! -f "$DB_FILE" ]; then
   NEED_SEED=true
 fi
 
+if [ "$NEED_SEED" = "false" ]; then
+  echo "==> Migracja istniejących przypisań wykonawców..."
+  node ./scripts/migrate-order-employees.js
+fi
+
 echo "==> Aplikowanie schematu bazy danych (prisma db push)..."
 "$PRISMA_BIN" db push --skip-generate
 

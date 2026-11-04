@@ -55,6 +55,7 @@ model Employee {
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
   orders      WashOrder[]
+  orderAssignments OrderEmployee[]
   chatMessages ChatMessage[]
   shiftEntries ShiftRoster[]
 }
@@ -94,6 +95,7 @@ model WashOrder {
   
   assignedEmployeeId  String?
   assignedEmployee    Employee?    @relation(fields: [assignedEmployeeId], references: [id])
+  assignedEmployees   OrderEmployee[]
   
   status              String       @default("PLANNED") // "PLANNED" (Zaplanowane / W kolejce) | "IN_PROGRESS" (W trakcie mycia) | "READY" (Gotowe do odbioru) | "COMPLETED" (Wydane / Odebrane) | "CANCELLED"
   isOverCapacity      Boolean      @default(false) // Czy dodano jako override ponad limit
@@ -117,6 +119,16 @@ model WashOrder {
   
   createdAt           DateTime     @default(now())
   updatedAt           DateTime     @updatedAt
+}
+
+model OrderEmployee {
+  orderId    String
+  employeeId String
+  order      WashOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  employee   Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@id([orderId, employeeId])
+  @@index([employeeId])
 }
 
 model OrderReleaseLog {

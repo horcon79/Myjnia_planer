@@ -3,7 +3,8 @@
 import { prisma } from '@/lib/prisma';
 import { revalidatePath } from 'next/cache';
 import { getCurrentUser } from '@/actions/auth';
-import { computeSlotUsage } from '@/lib/planner';
+import { computeSlotUsage, getOrderServiceWindow } from '@/lib/planner';
+import type { Prisma } from '@prisma/client';
 
 const CAPACITY_SETTING_DEFAULTS: Record<string, string> = {
   MAX_SIMULTANEOUS_CARS: '3',
@@ -11,8 +12,8 @@ const CAPACITY_SETTING_DEFAULTS: Record<string, string> = {
   ALLOW_OVER_CAPACITY: 'true',
 };
 
-async function getCapacityConfig() {
-  const rows = await prisma.appSetting.findMany({
+async function getCapacityConfig(tx: Prisma.TransactionClient) {
+  const rows = await tx.appSetting.findMany({
     where: { key: { in: Object.keys(CAPACITY_SETTING_DEFAULTS) } },
   });
   const values: Record<string, string> = { ...CAPACITY_SETTING_DEFAULTS };
@@ -22,38 +23,26 @@ async function getCapacityConfig() {
   const deliveryCarWeight = Number.parseFloat(values.DELIVERY_CAR_WEIGHT);
 
   return {
-    enforce: values.ALLOW_OVER_CAPACITY === 'false',
     maxCars: Number.isFinite(maxCars) && maxCars > 0 ? maxCars : 3,
     deliveryCarWeight: Number.isFinite(deliveryCarWeight) && deliveryCarWeight > 0 ? deliveryCarWeight : 1.5,
   };
 }
 
 /**
- * Serwerowa walidacja zdolności dla okna pracy auta. Działa tylko gdy
- * ALLOW_OVER_CAPACITY=false - w przeciwnym razie siatka pozostaje doradcza.
+ * Walidacja i zapis muszą odbywać się w tej samej transakcji SQLite.
  */
-async function validateCapacityWindow(params: {
+async function validateCapacityWindow(tx: Prisma.TransactionClient, params: {
   start: Date;
   end: Date;
   carType: string;
   excludeOrderId?: string;
 }): Promise<string | null> {
-  const config = await getCapacityConfig();
-  if (!config.enforce) return null;
-  if (params.end.getTime() <= params.start.getTime()) return null;
+  const config = await getCapacityConfig(tx);
 
-  const dayStart = new Date(params.start);
-  dayStart.setHours(0, 0, 0, 0);
-  const dayEnd = new Date(params.start);
-  dayEnd.setHours(23, 59, 59, 999);
-
-  const existing = await prisma.washOrder.findMany({
+  const existing = await tx.washOrder.findMany({
     where: {
       ...(params.excludeOrderId ? { id: { not: params.excludeOrderId } } : {}),
-      OR: [
-        { scheduledStartTime: { gte: dayStart, lte: dayEnd } },
-        { scheduledStartTime: null, targetReadyTime: { gte: dayStart, lte: dayEnd } },
-      ],
+      status: { notIn: ['COMPLETED', 'CANCELLED'] },
     },
     select: {
       id: true,
@@ -74,18 +63,10 @@ async function validateCapacityWindow(params: {
   const totalWeight = usage.usedCapacity + candidateWeight;
 
   if (totalWeight > config.maxCars + 1e-9) {
-    return `Brak wolnych stanowisk w tym terminie: zajęte ${usage.usedCapacity}/${config.maxCars}, a to auto waży ${candidateWeight}. Wybierz inny termin lub użyj trybu Ekspres/Override.`;
+    return `Brak wolnych stanowisk w tym terminie: zajęte ${usage.usedCapacity}/${config.maxCars}, a to auto waży ${candidateWeight}. Wybierz inny termin.`;
   }
 
   return null;
-}
-
-function validateNotLate(end: Date, targetReadyTime: Date): string | null {
-  if (end.getTime() <= targetReadyTime.getTime() + 1000) return null;
-
-  const endLabel = end.toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' });
-  const targetLabel = targetReadyTime.toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' });
-  return `Zakończenie mycia (${endLabel}) wypada po terminie gotowości (${targetLabel}). Skróć czas usługi, wybierz wcześniejszy start lub użyj trybu Ekspres/Override.`;
 }
 
 async function checkPlannerPermission() {
@@ -107,6 +88,7 @@ export interface CreateOrderInput {
   contactPerson?: string;
   scheduledStartTime?: string; // Optional direct slot
   assignedEmployeeId?: string;
+  assignedEmployeeIds?: string[];
   enteredByWash?: boolean; // Wprowadzone ręcznie przez myjnię (bez planowania działu)
   isPriority?: boolean; // Tryb Ekspres / Na już
   priorityAuthorizer?: string | null; // Osoba decyzyjna
@@ -153,6 +135,7 @@ async function loadBoardForDate(dateStr: string) {
       department: true,
       category: true,
       assignedEmployee: true,
+      assignedEmployees: { include: { employee: true } },
       releaseLogs: { orderBy: { createdAt: 'desc' } },
     },
     orderBy: [
@@ -184,6 +167,7 @@ async function loadBoardForDate(dateStr: string) {
       department: true,
       category: true,
       assignedEmployee: true,
+      assignedEmployees: { include: { employee: true } },
       releaseLogs: { orderBy: { createdAt: 'desc' } },
     },
     orderBy: [
@@ -198,13 +182,37 @@ async function loadBoardForDate(dateStr: string) {
 export async function getOrdersForDate(dateStr: string) {
   try {
     if (!await getCurrentUser()) {
-      return { success: false, error: 'Zaloguj się, aby wyświetlić zlecenia i historię wydania.', orders: [], pastUnfinishedOrders: [] };
+      return { success: false, error: 'Zaloguj się, aby wyświetlić zlecenia i historię wydania.', orders: [], departmentOrders: [], pastUnfinishedOrders: [], capacityOrders: [] };
     }
     const board = await loadBoardForDate(dateStr);
-    return { success: true, ...board };
+    const { startOfDay, endOfDay } = getDayRange(dateStr);
+    const targetOrders = await prisma.washOrder.findMany({
+      where: { targetReadyTime: { gte: startOfDay, lte: endOfDay }, id: { notIn: board.orders.map(order => order.id) } },
+      include: {
+        department: true,
+        category: true,
+        assignedEmployee: true,
+        assignedEmployees: { include: { employee: true } },
+        releaseLogs: { orderBy: { createdAt: 'desc' } },
+      },
+      orderBy: [{ isPriority: 'desc' }, { scheduledStartTime: 'asc' }, { targetReadyTime: 'asc' }],
+    });
+    const active = await prisma.washOrder.findMany({
+      where: { status: { notIn: ['COMPLETED', 'CANCELLED'] } },
+      select: { id: true, licensePlate: true, status: true, carType: true, durationMin: true, scheduledStartTime: true, scheduledEndTime: true, targetReadyTime: true },
+    });
+    const capacityOrders = new Map(board.orders.map(({ id, licensePlate, status, carType, durationMin, scheduledStartTime, scheduledEndTime, targetReadyTime }) =>
+      [id, { id, licensePlate, status, carType, durationMin, scheduledStartTime, scheduledEndTime, targetReadyTime }]));
+    for (const order of active) {
+      const window = getOrderServiceWindow(order);
+      if (window && window.startMs < endOfDay.getTime() + 1 && window.endMs > startOfDay.getTime()) {
+        capacityOrders.set(order.id, order);
+      }
+    }
+    return { success: true, ...board, departmentOrders: [...board.orders, ...targetOrders], capacityOrders: [...capacityOrders.values()] };
   } catch (error) {
     console.error('getOrdersForDate error:', error);
-    return { success: false, error: 'Nie udało się pobrać zleceń.', orders: [], pastUnfinishedOrders: [] };
+    return { success: false, error: 'Nie udało się pobrać zleceń.', orders: [], departmentOrders: [], pastUnfinishedOrders: [], capacityOrders: [] };
   }
 }
 
@@ -244,7 +252,7 @@ export async function getPlannerSnapshot(dateStr: string) {
       // Wszystkie auta gotowe do odbioru - klient odfiltruje te, które są już widoczne na grafiku.
       prisma.washOrder.findMany({
         where: { status: 'READY' },
-        include: { department: true, category: true, assignedEmployee: true },
+        include: { department: true, category: true, assignedEmployee: true, assignedEmployees: { include: { employee: true } } },
         orderBy: { targetReadyTime: 'asc' },
         take: 100,
       }),
@@ -275,6 +283,29 @@ export async function getPlannerSnapshot(dateStr: string) {
 
 export async function createOrder(input: CreateOrderInput) {
   try {
+    const user = await getCurrentUser();
+    if (!user || !['DEPARTMENT', 'WASHER', 'ADMIN'].includes(user.role)) {
+      return { success: false, error: 'Brak uprawnień do tworzenia zleceń.' };
+    }
+    if (!input || typeof input.licensePlate !== 'string' || !input.licensePlate.trim() ||
+        !['PASSENGER', 'DELIVERY'].includes(input.carType) ||
+        typeof input.targetReadyTime !== 'string') {
+      return { success: false, error: 'Nieprawidłowe dane zlecenia.' };
+    }
+    if (user.role === 'DEPARTMENT') {
+      const department = await prisma.department.findUnique({ where: { id: input.departmentId } });
+      if (!department || department.slug !== user.slug || input.enteredByWash || input.assignedEmployeeId || input.assignedEmployeeIds !== undefined) {
+        return { success: false, error: 'Możesz zgłosić zlecenie tylko dla własnego działu, bez przypisywania pracowników.' };
+      }
+    }
+    const ids = input.assignedEmployeeIds !== undefined ? input.assignedEmployeeIds : input.assignedEmployeeId ? [input.assignedEmployeeId] : [];
+    if (!Array.isArray(ids) || ids.some(id => typeof id !== 'string' || !id.trim()) || new Set(ids).size !== ids.length) {
+      return { success: false, error: 'Nieprawidłowa lista pracowników.' };
+    }
+    if (input.assignedEmployeeIds !== undefined) {
+      const auth = await checkPlannerPermission();
+      if (!auth.allowed) return { success: false, error: auth.error };
+    }
     const category = await prisma.washCategory.findUnique({
       where: { id: input.categoryId },
     });
@@ -284,8 +315,7 @@ export async function createOrder(input: CreateOrderInput) {
     }
 
     if (input.isPriority) {
-      const user = await getCurrentUser();
-      if (user && user.role !== 'WASHER' && user.role !== 'ADMIN') {
+      if (user.role !== 'WASHER' && user.role !== 'ADMIN') {
         return { 
           success: false, 
           error: 'Brak uprawnień. Tylko stanowisko Myjni oraz Kierownik / Admin mogą zgłaszać i planować zlecenia w trybie Ekspres poza kolejką.' 
@@ -300,43 +330,33 @@ export async function createOrder(input: CreateOrderInput) {
     }
 
     const durationMin = category.defaultDurationMin;
+    if (!Number.isInteger(durationMin) || durationMin < 5 || durationMin > 600) {
+      return { success: false, error: 'Nieprawidłowy czas trwania kategorii mycia.' };
+    }
     const targetDate = new Date(input.targetReadyTime);
     if (Number.isNaN(targetDate.getTime())) {
       return { success: false, error: 'Nieprawidłowy termin gotowości.' };
     }
 
-    // Wygeneruj unikalny numer zlecenia na dziś
-    const countToday = await prisma.washOrder.count();
-    const orderNumber = `Z-${countToday + 101}`;
-
-    let scheduledStart: Date | null = null;
-    let scheduledEnd: Date | null = null;
-
-    if (input.scheduledStartTime) {
-      scheduledStart = new Date(input.scheduledStartTime);
-      if (Number.isNaN(scheduledStart.getTime())) {
-        return { success: false, error: 'Nieprawidłowa godzina startu mycia.' };
-      }
-      scheduledEnd = new Date(scheduledStart.getTime() + durationMin * 60000);
-
-      if (!input.isPriority) {
-        const lateError = validateNotLate(scheduledEnd, targetDate);
-        if (lateError) return { success: false, error: lateError };
-      }
+    const scheduledStart = input.scheduledStartTime !== undefined
+      ? new Date(input.scheduledStartTime)
+      : new Date(targetDate.getTime() - durationMin * 60000);
+    if (Number.isNaN(scheduledStart.getTime())) {
+      return { success: false, error: 'Nieprawidłowa godzina startu mycia.' };
+    }
+    const scheduledEnd = new Date(scheduledStart.getTime() + durationMin * 60000);
+    if (user.role === 'DEPARTMENT' && scheduledEnd > targetDate) {
+      return { success: false, error: 'Zakończenie mycia wypada po terminie gotowości.' };
     }
 
-    if (!input.isPriority) {
-      const capacityStart = scheduledStart ?? new Date(targetDate.getTime() - durationMin * 60000);
-      const capacityEnd = scheduledEnd ?? targetDate;
-      const capacityError = await validateCapacityWindow({
-        start: capacityStart,
-        end: capacityEnd,
-        carType: input.carType,
-      });
-      if (capacityError) return { success: false, error: capacityError };
-    }
-
-    const newOrder = await prisma.washOrder.create({
+    const newOrder = await prisma.$transaction(async tx => {
+      const capacityError = await validateCapacityWindow(tx, { start: scheduledStart, end: scheduledEnd, carType: input.carType });
+      if (capacityError) return { error: capacityError };
+      if (ids.length && await tx.employee.count({ where: { id: { in: ids }, isActive: true } }) !== ids.length) {
+        throw new Error('INVALID_EMPLOYEES');
+      }
+      const orderNumber = `Z-${await tx.washOrder.count() + 101}`;
+      const order = await tx.washOrder.create({
       data: {
         orderNumber,
         licensePlate: input.licensePlate.trim().toUpperCase(),
@@ -348,7 +368,8 @@ export async function createOrder(input: CreateOrderInput) {
         scheduledStartTime: scheduledStart,
         scheduledEndTime: scheduledEnd,
         durationMin,
-        assignedEmployeeId: input.assignedEmployeeId || null,
+        assignedEmployeeId: ids[0] || null,
+        assignedEmployees: { create: ids.map(employeeId => ({ employeeId })) },
         status: 'PLANNED',
         enteredByWash: input.enteredByWash ?? false,
         isPriority: input.isPriority ?? false,
@@ -364,15 +385,20 @@ export async function createOrder(input: CreateOrderInput) {
         department: true,
         category: true,
         assignedEmployee: true,
+        assignedEmployees: { include: { employee: true } },
       },
     });
+      return { order };
+    });
+    if ('error' in newOrder) return { success: false, error: newOrder.error };
 
     revalidatePath('/planner');
     revalidatePath('/order');
     revalidatePath('/summary');
 
-    return { success: true, order: newOrder };
+    return { success: true, order: newOrder.order };
   } catch (error) {
+    if (error instanceof Error && error.message === 'INVALID_EMPLOYEES') return { success: false, error: 'Wybierz aktywnych pracowników myjni.' };
     console.error('createOrder error:', error);
     return { success: false, error: 'Błąd podczas tworzenia zlecenia.' };
   }
@@ -587,12 +613,76 @@ export async function releaseOrder(orderId: string, input: {
   }
 }
 
+export async function setOrderEmployees(orderId: string, data: {
+  assignedEmployeeIds: string[];
+  expectedUpdatedAt: string;
+}) {
+  try {
+    const auth = await checkPlannerPermission();
+    if (!auth.allowed) return { success: false, error: auth.error };
+    if (typeof orderId !== 'string' || !orderId.trim() || !data ||
+        !Array.isArray(data.assignedEmployeeIds) ||
+        data.assignedEmployeeIds.some(id => typeof id !== 'string' || !id.trim()) ||
+        new Set(data.assignedEmployeeIds).size !== data.assignedEmployeeIds.length ||
+        typeof data.expectedUpdatedAt !== 'string' || !Number.isFinite(Date.parse(data.expectedUpdatedAt))) {
+      return { success: false, error: 'Nieprawidłowe dane przypisania pracowników.' };
+    }
+
+    const result = await prisma.$transaction(async tx => {
+      const current = await tx.washOrder.findUnique({
+        where: { id: orderId },
+        include: { assignedEmployees: { select: { employeeId: true } } },
+      });
+      if (!current) return { error: 'Nie znaleziono zlecenia.' };
+      if (!['PLANNED', 'IN_PROGRESS', 'READY'].includes(current.status)) {
+        return { error: 'Nie można zmienić pracowników wydanego lub anulowanego zlecenia.' };
+      }
+      if (new Date(data.expectedUpdatedAt).getTime() !== current.updatedAt.getTime()) {
+        return { error: 'Zlecenie uległo zmianie. Odśwież widok i spróbuj ponownie.' };
+      }
+      const existing = new Set(current.assignedEmployees.map(assignment => assignment.employeeId));
+      if (current.assignedEmployeeId) existing.add(current.assignedEmployeeId);
+      const added = data.assignedEmployeeIds.filter(id => !existing.has(id));
+      if (added.length && await tx.employee.count({ where: { id: { in: added }, isActive: true } }) !== added.length) {
+        return { error: 'Wybierz aktywnych pracowników myjni.' };
+      }
+      const changed = await tx.washOrder.updateMany({
+        where: { id: orderId, status: current.status, updatedAt: current.updatedAt },
+        data: {
+          assignedEmployeeId: data.assignedEmployeeIds[0] || null,
+          updatedAt: new Date(Math.max(Date.now(), current.updatedAt.getTime() + 1)),
+        },
+      });
+      if (changed.count !== 1) return { error: 'Zlecenie uległo zmianie. Odśwież widok i spróbuj ponownie.' };
+      await tx.orderEmployee.deleteMany({ where: { orderId } });
+      if (data.assignedEmployeeIds.length) {
+        await tx.orderEmployee.createMany({ data: data.assignedEmployeeIds.map(employeeId => ({ orderId, employeeId })) });
+      }
+      const order = await tx.washOrder.findUniqueOrThrow({
+        where: { id: orderId },
+        include: { department: true, category: true, assignedEmployee: true, assignedEmployees: { include: { employee: true } } },
+      });
+      return { order };
+    });
+    if ('error' in result) return { success: false, error: result.error };
+    revalidatePath('/planner');
+    revalidatePath('/order');
+    revalidatePath('/summary');
+    return { success: true, order: result.order };
+  } catch (error) {
+    console.error('setOrderEmployees error:', error);
+    return { success: false, error: 'Nie udało się zmienić przypisania. Odśwież widok i spróbuj ponownie.' };
+  }
+}
+
 export async function scheduleOrder(
   orderId: string,
   data: {
     scheduledStartTime: string;
     durationMin?: number;
     assignedEmployeeId?: string | null;
+    assignedEmployeeIds?: string[];
+    expectedUpdatedAt?: string;
     isOverCapacity?: boolean;
   }
 ) {
@@ -605,6 +695,9 @@ export async function scheduleOrder(
     });
 
     if (!current) return { success: false, error: 'Nie znaleziono zlecenia.' };
+    if (data.expectedUpdatedAt !== undefined && new Date(data.expectedUpdatedAt).getTime() !== current.updatedAt.getTime()) {
+      return { success: false, error: 'Zlecenie uległo zmianie. Odśwież widok i spróbuj ponownie.' };
+    }
     if (current.status === 'CANCELLED') {
       return { success: false, error: 'Zlecenie zostało anulowane - nie można go planować.' };
     }
@@ -620,51 +713,53 @@ export async function scheduleOrder(
     if (!Number.isFinite(duration) || duration < 5 || duration > 600) {
       return { success: false, error: 'Czas trwania musi mieścić się w zakresie 5-600 minut.' };
     }
-    if (data.assignedEmployeeId) {
-      const employee = await prisma.employee.findUnique({ where: { id: data.assignedEmployeeId } });
-      if (!employee?.isActive) {
-        return { success: false, error: 'Wybierz aktywnego pracownika myjni.' };
-      }
+    const ids = data.assignedEmployeeIds !== undefined ? data.assignedEmployeeIds : data.assignedEmployeeId !== undefined ? (data.assignedEmployeeId ? [data.assignedEmployeeId] : []) : undefined;
+    if (ids !== undefined && (!Array.isArray(ids) || ids.some(id => typeof id !== 'string' || !id.trim()) || new Set(ids).size !== ids.length)) {
+      return { success: false, error: 'Nieprawidłowa lista pracowników.' };
     }
     const end = new Date(start.getTime() + duration * 60000);
 
-    if (!current.isPriority && !data.isOverCapacity) {
-      const lateError = validateNotLate(end, current.targetReadyTime);
-      if (lateError) return { success: false, error: lateError };
-
-      const capacityError = await validateCapacityWindow({
-        start,
-        end,
-        carType: current.carType,
-        excludeOrderId: orderId,
-      });
-      if (capacityError) return { success: false, error: capacityError };
+    const updated = await prisma.$transaction(async tx => {
+    const capacityError = await validateCapacityWindow(tx, { start, end, carType: current.carType, excludeOrderId: orderId });
+    if (capacityError) return { error: capacityError };
+    const existingIds = ids?.length ? (await tx.orderEmployee.findMany({ where: { orderId }, select: { employeeId: true } })).map(a => a.employeeId) : [];
+    const newIds = ids?.filter(id => !existingIds.includes(id)) || [];
+    if (newIds.length && await tx.employee.count({ where: { id: { in: newIds }, isActive: true } }) !== newIds.length) {
+      throw new Error('INVALID_EMPLOYEES');
     }
-
-    const changed = await prisma.washOrder.updateMany({
-      where: { id: orderId, status: current.status },
+    const changed = await tx.washOrder.updateMany({
+      where: { id: orderId, status: current.status, updatedAt: current.updatedAt },
       data: {
         scheduledStartTime: start,
         scheduledEndTime: end,
         durationMin: duration,
-        assignedEmployeeId: data.assignedEmployeeId,
+        assignedEmployeeId: ids === undefined ? undefined : ids[0] || null,
         isOverCapacity: data.isOverCapacity ?? false,
       },
     });
-    if (changed.count !== 1) return { success: false, error: 'Zlecenie uległo zmianie. Odśwież widok i spróbuj ponownie.' };
-    const updated = await prisma.washOrder.findUniqueOrThrow({
+    if (changed.count !== 1) return { error: 'Zlecenie uległo zmianie. Odśwież widok i spróbuj ponownie.' };
+    if (ids !== undefined) {
+      await tx.orderEmployee.deleteMany({ where: { orderId } });
+      if (ids.length) await tx.orderEmployee.createMany({ data: ids.map(employeeId => ({ orderId, employeeId })) });
+    }
+    const order = await tx.washOrder.findUniqueOrThrow({
       where: { id: orderId },
       include: {
         department: true,
         category: true,
         assignedEmployee: true,
+        assignedEmployees: { include: { employee: true } },
       },
     });
+    return { order };
+    });
+    if ('error' in updated) return { success: false, error: updated.error };
 
     revalidatePath('/planner');
     revalidatePath('/order');
-    return { success: true, order: updated };
+    return { success: true, order: updated.order };
   } catch (error) {
+    if (error instanceof Error && error.message === 'INVALID_EMPLOYEES') return { success: false, error: 'Wybierz aktywnych pracowników myjni.' };
     console.error('scheduleOrder error:', error);
     return { success: false, error: 'Błąd podczas planowania terminu.' };
   }

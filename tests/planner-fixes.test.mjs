@@ -140,6 +140,10 @@ test('cancelOrder: uprawnienia, audyt i ochrona wydanych zleceń', async () => {
     let beforeWrite;
     const intercepted = new Proxy(prisma, {
       get(target, key) {
+        if (key === '$transaction') return async (callback) => {
+          if (beforeWrite) { const hook = beforeWrite; beforeWrite = null; await hook(); }
+          return target.$transaction(callback);
+        };
         if (key === 'washOrder') return new Proxy(target.washOrder, {
           get(model, operation) {
             if (operation === 'updateMany') return async (args) => {
@@ -224,14 +228,16 @@ test('createOrder/scheduleOrder: serwer pilnuje terminu gotowości i zdolności'
     });
     assert.equal(lateTest.success, true);
 
-    // Start po terminie gotowości jest odrzucany, chyba że użyto override.
+    assert.equal(lateTest.order.scheduledStartTime.getTime(), base.getTime());
+    assert.equal(lateTest.order.assignedEmployeeId, null);
+    // Myjnia może przesunąć po terminie, nie zmieniając targetu.
     const lateStart = new Date(targetReady.getTime() + 30 * 60000);
     const late = await orders.scheduleOrder(lateTest.order.id, {
       scheduledStartTime: lateStart.toISOString(),
       durationMin: 30,
     });
-    assert.equal(late.success, false);
-    assert.match(late.error, /po terminie gotowości/);
+    assert.equal(late.success, true);
+    assert.equal(late.order.targetReadyTime.getTime(), targetReady.getTime());
 
     const lateOverride = await orders.scheduleOrder(lateTest.order.id, {
       scheduledStartTime: lateStart.toISOString(),
@@ -289,6 +295,148 @@ test('createOrder/scheduleOrder: serwer pilnuje terminu gotowości i zdolności'
       enteredByWash: true,
     });
     assert.equal(quickAdd.success, true);
+  } finally {
+    await prisma.$disconnect();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('twardy limit: autoryzacja, waga, północ, legacy i równoległe zapisy', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'kilo', 'capacity-hard-'));
+  const url = `file:${join(directory, 'test.db')}`;
+  const prisma = new PrismaClient({ datasources: { db: { url } } });
+  const session = { user: null };
+  try {
+    execFileSync(process.execPath, [fileURLToPath(import.meta.resolve('prisma/build/index.js')), 'db', 'push', '--skip-generate', '--schema', fileURLToPath(new URL('../prisma/schema.prisma', import.meta.url))], { env: { ...process.env, DATABASE_URL: url }, stdio: 'pipe' });
+    const orders = loadModule('../src/actions/orders.ts', prisma, session);
+    const department = await prisma.department.create({ data: { name: 'Salon', slug: 'salon', code: 'SAL' } });
+    const other = await prisma.department.create({ data: { name: 'Serwis', slug: 'serwis', code: 'SER' } });
+    const category = await prisma.washCategory.create({ data: { name: 'Godzina', defaultDurationMin: 60 } });
+    for (const [key, value] of [['MAX_SIMULTANEOUS_CARS', '1'], ['ALLOW_OVER_CAPACITY', 'true'], ['DELIVERY_CAR_WEIGHT', '1.5']]) {
+      await prisma.appSetting.create({ data: { key, value } });
+    }
+    const input = { licensePlate: 'TEST', carType: 'PASSENGER', departmentId: department.id, categoryId: category.id, targetReadyTime: '2030-01-02T00:30:00Z' };
+    assert.equal((await orders.createOrder(input)).success, false);
+    session.user = { role: 'DEPARTMENT', slug: 'salon' };
+    assert.equal((await orders.createOrder({ ...input, departmentId: other.id })).success, false);
+    assert.equal((await orders.createOrder({ ...input, assignedEmployeeId: 'x' })).success, false);
+    assert.equal((await orders.createOrder({ ...input, carType: 'DELIVERY' })).success, false);
+    const created = await orders.createOrder(input);
+    assert.equal(created.success, true);
+    assert.equal(created.order.scheduledStartTime.toISOString(), '2030-01-01T23:30:00.000Z');
+    assert.equal((await orders.createOrder({ ...input, scheduledStartTime: '2030-01-02T00:00:00Z', targetReadyTime: '2030-01-02T01:00:00Z' })).success, false);
+    session.user = { role: 'WASHER', slug: 'wash' };
+    const moving = await orders.createOrder({ ...input, targetReadyTime: '2030-01-02T03:00:00Z' });
+    assert.equal(moving.success, true);
+    assert.equal((await orders.scheduleOrder(moving.order.id, { scheduledStartTime: '2030-01-02T00:00:00Z', isOverCapacity: true })).success, false);
+    assert.equal((await orders.createOrder({ ...input, isPriority: true, priorityAuthorizer: 'Kierownik', priorityReason: 'Pilne' })).success, false);
+    await prisma.washOrder.create({ data: { orderNumber: 'LEGACY', licensePlate: 'LEGACY', departmentId: department.id, categoryId: category.id, targetReadyTime: new Date('2030-01-03T00:30:00Z'), durationMin: 60 } });
+    assert.equal((await orders.createOrder({ ...input, targetReadyTime: '2030-01-03T01:00:00Z' })).success, false);
+    const simultaneous = await Promise.all([
+      orders.createOrder({ ...input, targetReadyTime: '2030-01-04T01:00:00Z' }),
+      orders.createOrder({ ...input, targetReadyTime: '2030-01-04T01:00:00Z' }),
+    ]);
+    assert.equal(simultaneous.filter(result => result.success).length, 1);
+  } finally {
+    await prisma.$disconnect();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('setOrderEmployees zmienia tylko wykonawców, atomowo i z kontrolą wersji', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'kilo', 'assign-only-'));
+  const url = `file:${join(directory, 'test.db')}`;
+  const prisma = new PrismaClient({ datasources: { db: { url } } });
+  const session = { user: null };
+  try {
+    execFileSync(process.execPath, [fileURLToPath(import.meta.resolve('prisma/build/index.js')), 'db', 'push', '--skip-generate', '--schema', fileURLToPath(new URL('../prisma/schema.prisma', import.meta.url))], { env: { ...process.env, DATABASE_URL: url }, stdio: 'pipe' });
+    const actions = loadModule('../src/actions/orders.ts', prisma, session);
+    const department = await prisma.department.create({ data: { name: 'Salon', slug: 'salon', code: 'SAL' } });
+    const category = await prisma.washCategory.create({ data: { name: 'Mycie' } });
+    const a = await prisma.employee.create({ data: { name: 'A', shortName: 'A' } });
+    const b = await prisma.employee.create({ data: { name: 'B', shortName: 'B' } });
+    const inactive = await prisma.employee.create({ data: { name: 'C', shortName: 'C', isActive: false } });
+    const legacy = await prisma.washOrder.create({ data: { orderNumber: 'L', licensePlate: 'LEGACY', departmentId: department.id, categoryId: category.id, targetReadyTime: new Date('2030-01-01T12:00:00Z'), assignedEmployeeId: inactive.id } });
+    const call = (ids, version = legacy.updatedAt.toISOString()) => actions.setOrderEmployees(legacy.id, { assignedEmployeeIds: ids, expectedUpdatedAt: version });
+    assert.equal((await call([a.id])).success, false);
+    session.user = { role: 'DEPARTMENT', slug: 'salon' };
+    assert.equal((await call([a.id])).success, false);
+    session.user = { role: 'WASHER', slug: 'wash' };
+    assert.equal((await call([a.id, a.id])).success, false);
+    assert.equal((await call(['missing'])).success, false);
+    assert.equal((await actions.setOrderEmployees(legacy.id, { assignedEmployeeIds: [], expectedUpdatedAt: 'bad' })).success, false);
+    const assigned = await call([inactive.id, a.id]);
+    assert.equal(assigned.success, true);
+    assert.equal(assigned.order.scheduledStartTime, null);
+    assert.equal(assigned.order.scheduledEndTime, null);
+    assert.equal(assigned.order.targetReadyTime.getTime(), legacy.targetReadyTime.getTime());
+    assert.equal(assigned.order.status, 'PLANNED');
+    assert.equal((await call([b.id])).success, false);
+    const version = assigned.order.updatedAt.toISOString();
+    const removed = await call([a.id], version);
+    assert.equal(removed.success, true);
+    assert.equal((await call([inactive.id], removed.order.updatedAt.toISOString())).success, false);
+    await prisma.$executeRawUnsafe('CREATE TRIGGER reject_assignment BEFORE INSERT ON "OrderEmployee" BEGIN SELECT RAISE(ABORT, "reject"); END');
+    assert.equal((await call([b.id], removed.order.updatedAt.toISOString())).success, false);
+    let stored = await prisma.washOrder.findUniqueOrThrow({ where: { id: legacy.id }, include: { assignedEmployees: true } });
+    assert.equal(stored.assignedEmployeeId, a.id);
+    assert.equal(stored.assignedEmployees[0].employeeId, a.id);
+    assert.equal(stored.updatedAt.getTime(), removed.order.updatedAt.getTime());
+    await prisma.$executeRawUnsafe('DROP TRIGGER reject_assignment');
+    await prisma.appSetting.create({ data: { key: 'MAX_SIMULTANEOUS_CARS', value: '1' } });
+    const start = new Date('2030-01-01T11:30:00Z');
+    const conflict = await prisma.washOrder.create({ data: { orderNumber: 'CONFLICT', licensePlate: 'CONFLICT', departmentId: department.id, categoryId: category.id, targetReadyTime: legacy.targetReadyTime, scheduledStartTime: start, scheduledEndTime: legacy.targetReadyTime } });
+    stored = await prisma.washOrder.update({ where: { id: legacy.id }, data: { scheduledStartTime: start, scheduledEndTime: legacy.targetReadyTime } });
+    const conflictChange = await call([b.id], stored.updatedAt.toISOString());
+    assert.equal(conflictChange.success, true);
+    assert.equal(conflictChange.order.scheduledStartTime.getTime(), start.getTime());
+    assert.equal((await prisma.washOrder.findUniqueOrThrow({ where: { id: conflict.id } })).assignedEmployeeId, null);
+    for (const status of ['IN_PROGRESS', 'READY', 'COMPLETED', 'CANCELLED']) {
+      stored = await prisma.washOrder.update({ where: { id: legacy.id }, data: { status } });
+      const result = await call([], stored.updatedAt.toISOString());
+      assert.equal(result.success, status === 'IN_PROGRESS' || status === 'READY');
+    }
+    stored = await prisma.washOrder.update({ where: { id: legacy.id }, data: { status: 'PLANNED' } });
+    const attempts = await Promise.all([call([a.id], stored.updatedAt.toISOString()), call([b.id], stored.updatedAt.toISOString())]);
+    assert.equal(attempts.filter(result => result.success).length, 1);
+  } finally {
+    await prisma.$disconnect();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('getOrdersForDate zwraca osobno obłożenie przechodzące przez północ', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'kilo', 'capacity-day-'));
+  const url = `file:${join(directory, 'test.db')}`;
+  const prisma = new PrismaClient({ datasources: { db: { url } } });
+  const session = { user: null };
+  try {
+    execFileSync(process.execPath, [fileURLToPath(import.meta.resolve('prisma/build/index.js')), 'db', 'push', '--skip-generate', '--schema', fileURLToPath(new URL('../prisma/schema.prisma', import.meta.url))], { env: { ...process.env, DATABASE_URL: url }, stdio: 'pipe' });
+    const actions = loadModule('../src/actions/orders.ts', prisma, session);
+    const department = await prisma.department.create({ data: { name: 'Salon', slug: 'salon', code: 'SAL' } });
+    const category = await prisma.washCategory.create({ data: { name: 'Mycie' } });
+    const midnight = new Date(2030, 0, 2);
+    const dateAt = minutes => new Date(midnight.getTime() + minutes * 60000);
+    const create = (number, values) => prisma.washOrder.create({ data: { orderNumber: number, licensePlate: number, departmentId: department.id, categoryId: category.id, targetReadyTime: dateAt(60), durationMin: 60, ...values } });
+    const crossing = await create('CROSS', { scheduledStartTime: dateAt(-60), scheduledEndTime: dateAt(60), carType: 'DELIVERY' });
+    const fallbackEnd = await create('NOEND', { scheduledStartTime: dateAt(-30), scheduledEndTime: null });
+    const futureLegacy = await create('LEGACY', { targetReadyTime: dateAt(24 * 60 + 30), durationMin: 60 });
+    const dayOrder = await create('DAY', { scheduledStartTime: dateAt(120), scheduledEndTime: dateAt(180) });
+    await create('BOUNDARY', { scheduledStartTime: dateAt(-60), scheduledEndTime: midnight });
+    await create('CANCEL', { scheduledStartTime: dateAt(-60), scheduledEndTime: dateAt(60), status: 'CANCELLED' });
+    assert.equal((await actions.getOrdersForDate('2030-01-02')).success, false);
+    session.user = { role: 'DEPARTMENT', slug: 'salon' };
+    const result = await actions.getOrdersForDate('2030-01-02');
+    assert.equal(result.success, true);
+    const ids = result.capacityOrders.map(order => order.id);
+    for (const order of [crossing, fallbackEnd, futureLegacy, dayOrder]) assert.ok(ids.includes(order.id));
+    assert.equal(ids.length, new Set(ids).size);
+    assert.equal(ids.length, 4);
+    assert.equal(result.orders.some(order => order.id === crossing.id), false);
+    assert.equal(result.orders.some(order => order.id === dayOrder.id), true);
+    const usage = loadPlannerModule().computeSlotUsage(result.capacityOrders, dateAt(0).getTime(), dateAt(30).getTime());
+    assert.equal(usage.usedCapacity, 2.5);
+    assert.deepEqual(Object.keys(result.capacityOrders.find(order => order.id === crossing.id)).sort(), ['carType', 'durationMin', 'id', 'licensePlate', 'scheduledEndTime', 'scheduledStartTime', 'status', 'targetReadyTime'].sort());
   } finally {
     await prisma.$disconnect();
     rmSync(directory, { recursive: true, force: true });

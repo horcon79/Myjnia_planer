@@ -95,14 +95,26 @@ export async function toggleEmployeeActive(id: string, isActive: boolean) {
 export async function deleteEmployee(id: string) {
   try {
     await requireAdmin();
-    // Unassign this employee from any orders so deletion doesn't fail foreign keys
-    await prisma.washOrder.updateMany({
-      where: { assignedEmployeeId: id },
-      data: { assignedEmployeeId: null },
-    });
-
-    await prisma.employee.delete({
-      where: { id },
+    await prisma.$transaction(async (tx) => {
+      const orders = await tx.washOrder.findMany({
+        where: { assignedEmployeeId: id },
+        select: {
+          id: true,
+          assignedEmployees: {
+            where: { employeeId: { not: id } },
+            orderBy: { employeeId: 'asc' },
+            take: 1,
+            select: { employeeId: true },
+          },
+        },
+      });
+      for (const order of orders) {
+        await tx.washOrder.update({
+          where: { id: order.id },
+          data: { assignedEmployeeId: order.assignedEmployees[0]?.employeeId ?? null },
+        });
+      }
+      await tx.employee.delete({ where: { id } });
     });
 
     revalidatePath('/settings');

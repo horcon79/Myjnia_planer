@@ -130,6 +130,7 @@ export default function OrderFormAndList({
 
   // List & Polling State
   const [orders, setOrders] = useState<any[]>([]);
+  const [capacityOrders, setCapacityOrders] = useState<any[]>([]);
   const [targetDateOrders, setTargetDateOrders] = useState<any[]>([]);
   const [selectedDate, setSelectedDate] = useState(targetReadyDate);
   const [isLoadingList, setIsLoadingList] = useState(true);
@@ -216,7 +217,8 @@ export default function OrderFormAndList({
     try {
       const res = await getOrdersForDate(selectedDate);
       if (res.success && res.orders) {
-        setOrders(res.orders);
+        setOrders(res.departmentOrders);
+        setCapacityOrders(res.capacityOrders);
       }
     } catch (err) {
       console.error(err);
@@ -236,19 +238,19 @@ export default function OrderFormAndList({
   // Synchronizacja zleceń dla targetReadyDate (potrzebna do siatki dostępności)
   useEffect(() => {
     if (targetReadyDate === selectedDate) {
-      setTargetDateOrders(orders);
+      setTargetDateOrders(capacityOrders);
     } else {
       let cancelled = false;
       getOrdersForDate(targetReadyDate).then((res) => {
         if (!cancelled && res.success && res.orders) {
-          setTargetDateOrders(res.orders);
+          setTargetDateOrders(res.capacityOrders);
         }
       });
       return () => {
         cancelled = true;
       };
     }
-  }, [targetReadyDate, selectedDate, orders]);
+  }, [targetReadyDate, selectedDate, capacityOrders]);
 
   // DMS: ładuj status integracji przy zmianie działu
   useEffect(() => {
@@ -379,9 +381,10 @@ export default function OrderFormAndList({
         setFormErrorMsg('Dla zlecenia w trybie Ekspres wymagane jest podanie uzasadnienia pierwszeństwa (np. Klient czeka w salonie).');
         return;
       }
-    } else if (settings.ALLOW_OVER_CAPACITY === 'false' && selectedSlotStatus?.isOverbooked) {
+    }
+    if (selectedSlotStatus?.isOverbooked) {
       setFormErrorMsg(
-        `Wybrana godzina (${targetHour}) jest już całkowicie zapełniona (${selectedSlotStatus.usedCapacity}/${selectedSlotStatus.totalCapacity} aut). Wybierz inny wolny termin (zielony slot) lub skonsultuj z Kierownikiem/Myjnią.`
+        `Brak miejsca dla tego pojazdu o godzinie ${targetHour} (${selectedSlotStatus.usedCapacity}/${selectedSlotStatus.totalCapacity}). Wybierz inny wolny termin.`
       );
       return;
     }
@@ -489,7 +492,7 @@ export default function OrderFormAndList({
           </span>
         );
       default: {
-        const isAssigned = Boolean(order.assignedEmployee?.name || order.assignedEmployeeId || order.scheduledStartTime);
+        const isAssigned = Boolean(order.assignedEmployees.length || order.scheduledStartTime);
         if (isAssigned) {
           return (
             <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-xs font-black shadow-sm">
@@ -997,19 +1000,19 @@ export default function OrderFormAndList({
                 </div>
 
                 {/* Overbooked / Full Capacity Warning Banner */}
-                {selectedSlotStatus?.isOverbooked && !isPriority && (
+                {selectedSlotStatus?.isOverbooked && (
                   <div className="mb-2.5 p-2.5 rounded-xl bg-gradient-to-r from-rose-950/90 via-amber-950/70 to-slate-900 border border-rose-500/80 text-rose-200 text-xs space-y-1.5 shadow-md animate-fadeIn">
                     <div className="flex items-start gap-2">
                       <AlertTriangle className="w-4 h-4 text-rose-400 flex-shrink-0 mt-0.5 animate-pulse" />
                       <div>
                         <div className="text-xs font-black text-rose-300 flex items-center gap-1.5 flex-wrap">
-                          <span>Godzina {targetHour} jest już w 100% zapełniona</span>
+                          <span>Brak miejsca dla tego pojazdu o godzinie {targetHour}</span>
                           <span className="px-1.5 py-0.2 rounded bg-rose-500/30 text-rose-300 border border-rose-500/40 font-mono text-[11px]">
                             {selectedSlotStatus.usedCapacity}/{selectedSlotStatus.totalCapacity} aut
                           </span>
                         </div>
                         <p className="text-xs text-rose-200/90 font-normal mt-0.5 leading-tight">
-                          Zlecenie trafi do kolejki jako oczekujące i może być zrealizowane z opóźnieniem.
+                          Wybierz inny termin. Limit stanowisk obowiązuje również w trybie Ekspres.
                         </p>
                       </div>
                     </div>
@@ -1080,6 +1083,7 @@ export default function OrderFormAndList({
                   workEndHour={workEndHour}
                   maxSimultaneousCars={maxSimultaneousCars}
                   deliveryCarWeight={deliveryCarWeight}
+                  carType={carType}
                   onSwitchToTomorrow={() => {
                     setTargetReadyDate(tomorrowStr);
                     setTargetHour('09:00');
@@ -1340,9 +1344,10 @@ export default function OrderFormAndList({
               {filteredOrders.map((order) => {
                 const isReady = order.status === 'READY';
                 const isInProgress = order.status === 'IN_PROGRESS';
-                const hasDelay = order.scheduledStartTime &&
-                  (new Date(order.scheduledStartTime).getTime() + (order.durationMin || 30) * 60000) > new Date(order.targetReadyTime).getTime() &&
-                  order.status !== 'COMPLETED';
+                const isActive = order.status === 'PLANNED' || order.status === 'IN_PROGRESS';
+                const hasDelay = isActive && order.scheduledStartTime &&
+                  (order.scheduledEndTime ? new Date(order.scheduledEndTime).getTime() : new Date(order.scheduledStartTime).getTime() + (order.durationMin || 30) * 60000) > new Date(order.targetReadyTime).getTime();
+                const isOverdue = isActive && now.getTime() > new Date(order.targetReadyTime).getTime();
                 const latestArrival = getLatestArrivalTime(
                   order.targetReadyTime,
                   order.durationMin || 30
@@ -1406,7 +1411,16 @@ export default function OrderFormAndList({
                           <div className="flex items-center gap-1 text-[11px]">
                             <span className="text-slate-400">Start:</span>
                             <span className="font-mono font-bold text-emerald-300 bg-emerald-950/50 px-1.5 py-0.5 rounded border border-emerald-500/30">
-                              {format(new Date(order.scheduledStartTime), 'HH:mm', { locale: pl })}
+                              {format(new Date(order.scheduledStartTime), 'HH:mm (d MMM)', { locale: pl })}
+                            </span>
+                          </div>
+                        )}
+
+                        {order.scheduledEndTime && (
+                          <div className="flex items-center gap-1 text-[11px]">
+                            <span className="text-slate-400">Koniec mycia:</span>
+                            <span className="font-mono font-bold text-emerald-300 bg-emerald-950/50 px-1.5 py-0.5 rounded border border-emerald-500/30">
+                              {format(new Date(order.scheduledEndTime), 'HH:mm (d MMM)', { locale: pl })}
                             </span>
                           </div>
                         )}
@@ -1433,11 +1447,11 @@ export default function OrderFormAndList({
                         )}
 
                         {/* Washer staff (shown when assigned) */}
-                        {order.assignedEmployee?.name && (
+                        {order.assignedEmployees.length > 0 && (
                           <div className="flex items-center gap-1 text-[11px]">
                             <span className="text-slate-400">Pracownik:</span>
                             <span className="font-semibold text-emerald-300 bg-emerald-950/40 px-1.5 py-0.5 rounded border border-emerald-500/30">
-                              {order.assignedEmployee.name}
+                              {order.assignedEmployees.map((assignment: any) => assignment.employee.name).join(', ')}
                             </span>
                           </div>
                         )}
@@ -1465,7 +1479,7 @@ export default function OrderFormAndList({
                     </div>
 
                     {/* Compact Details Subline: Notes / Express Audit / Delay Warning / Reporter */}
-                    {(order.isPriority || order.notes || hasDelay || order.status === 'CANCELLED') && (
+                    {(order.isPriority || order.notes || hasDelay || isOverdue || order.status === 'CANCELLED') && (
                       <div className="mt-2 pt-1.5 border-t border-slate-800/60 flex flex-wrap items-center gap-2 text-[10px]">
                         {/* Express Audit Log */}
                         {order.isPriority && (
@@ -1482,6 +1496,12 @@ export default function OrderFormAndList({
                           <span className="text-rose-300 flex items-center gap-1 bg-rose-950/60 px-1.5 py-0.5 rounded border border-rose-500/40 font-bold">
                             <AlertTriangle className="w-3 h-3 text-rose-400 flex-shrink-0" />
                             <span>Koniec mycia po terminie gotowości!</span>
+                          </span>
+                        )}
+                        {isOverdue && (
+                          <span className="text-rose-300 flex items-center gap-1 bg-rose-950/60 px-1.5 py-0.5 rounded border border-rose-500/40 font-bold">
+                            <AlertTriangle className="w-3 h-3 text-rose-400 flex-shrink-0" />
+                            <span>Termin gotowości minął!</span>
                           </span>
                         )}
 

@@ -6,6 +6,7 @@ import {
   getPlannerSnapshot,
   updateOrderStatus, 
   scheduleOrder, 
+  setOrderEmployees,
   deleteOrder,
   createOrder,
   finishOrderWithNote,
@@ -13,7 +14,7 @@ import {
   cancelOrder
 } from '@/actions/orders';
 import { setShiftRoster } from '@/actions/shifts';
-import { isQueueOrder, isActiveShiftEntry, getLatestArrivalTime, getOrderLatestArrivalTime } from '@/lib/planner';
+import { isActiveShiftEntry, getLatestArrivalTime, getOrderLatestArrivalTime } from '@/lib/planner';
 import { 
   Calendar, 
   ChevronLeft, 
@@ -31,10 +32,8 @@ import {
   Truck, 
   Edit3, 
   Trash2, 
-  AlertCircle, 
   Sparkles,
   Layers,
-  ArrowRight,
   Target,
   X,
   AlertOctagon,
@@ -136,8 +135,12 @@ export default function PlannerBoard({
   const [modalScheduleDate, setModalScheduleDate] = useState(currentDate);
   const [modalScheduleTime, setModalScheduleTime] = useState('08:00');
   const [modalDuration, setModalDuration] = useState(30);
-  const [modalEmployeeId, setModalEmployeeId] = useState('');
+  const [modalEmployeeIds, setModalEmployeeIds] = useState<string[]>([]);
   const [modalOverCapacity, setModalOverCapacity] = useState(false);
+  const [employeeOrder, setEmployeeOrder] = useState<any | null>(null);
+  const [employeeSelection, setEmployeeSelection] = useState<string[]>([]);
+  const [employeeError, setEmployeeError] = useState('');
+  const [employeePending, setEmployeePending] = useState(false);
 
   // Quick Add – null = zamknięte; obiekt = otwarte z prefillem godziny i pracownika
   const [quickAddPrefill, setQuickAddPrefill] = useState<{ time: string; employeeId: string } | null>(null);
@@ -154,8 +157,15 @@ export default function PlannerBoard({
   const [dropTarget, setDropTarget] = useState<{ time: string; employeeId: string } | null>(null);
   const [dropConfirm, setDropConfirm] = useState<any | null>(null);
   const longPressTimer = useRef<any>(null);
-  const dragRef = useRef<{ order: any; pointerId: number; startX: number; startY: number; active: boolean } | null>(null);
+  const dragRef = useRef<{ order: any; pointerId: number; startX: number; startY: number; active: boolean; grabOffset: number; startMinutes: number; x: number; y: number } | null>(null);
   const dropTargetRef = useRef<{ time: string; employeeId: string } | null>(null);
+  const dragCleanupRef = useRef<(() => void) | null>(null);
+  const dragFrameRef = useRef<number | null>(null);
+  const axisStartRef = useRef(0);
+  const dayRequestRef = useRef({ date: currentDate, generation: 0, request: 0, applied: 0 });
+  if (dayRequestRef.current.date !== currentDate) {
+    dayRequestRef.current = { date: currentDate, generation: dayRequestRef.current.generation + 1, request: 0, applied: 0 };
+  }
 
   // Long-press on empty slot cell → open Quick Add with prefilled time/employee
   const cellLongPressTimer = useRef<any>(null);
@@ -163,16 +173,15 @@ export default function PlannerBoard({
 
   // Container ref for auto-scrolling
   const timelineScrollRef = useRef<HTMLDivElement>(null);
+  const timelineGridRef = useRef<HTMLDivElement>(null);
 
   // Capacity Settings
   const maxCarsLimit = parseInt(settings.MAX_SIMULTANEOUS_CARS || '3', 10);
   const workStartHour = parseInt(settings.WORK_START_HOUR || '7', 10);
   const workEndHour = parseInt(settings.WORK_END_HOUR || '18', 10);
 
-  // Timeline geometry: fixed slot height + gap so absolute card positioning aligns with slot cells
-  const SLOT_HEIGHT = compact ? 92 : 112;
-  const SLOT_GAP = 8;
-  const SLOT_STEP = SLOT_HEIGHT + SLOT_GAP;
+  const PIXELS_PER_MINUTE = 4;
+  const LANE_HEIGHT = compact ? 230 : 260;
 
   // Shift length limits: standard 8h shift, obsada wygasa po 9h (SHIFT_MAX_MS w lib/planner)
   const STANDARD_SHIFT_MS = 8 * 60 * 60 * 1000;
@@ -249,11 +258,7 @@ export default function PlannerBoard({
       setModalScheduleDate(d);
       setModalScheduleTime(t);
       setModalDuration(editingOrder.durationMin || 30);
-      setModalEmployeeId(
-        editingOrder.assignedEmployeeId && activeEmpIds.includes(editingOrder.assignedEmployeeId)
-          ? editingOrder.assignedEmployeeId
-          : (activeEmpIds[0] || employees[0]?.id || '')
-      );
+      setModalEmployeeIds((editingOrder.assignedEmployees || []).map((assignment: any) => assignment.employeeId));
       setModalOverCapacity(editingOrder.isOverCapacity || false);
     }
   }, [editingOrder]);
@@ -297,8 +302,15 @@ export default function PlannerBoard({
 
   // Polling data (zlecenia + obsada zmiany + auta do wydania w jednym zapytaniu)
   const fetchDayOrders = async () => {
+    const requestState = dayRequestRef.current;
+    if (requestState.date !== currentDate) return;
+    const generation = requestState.generation;
+    const request = ++requestState.request;
+    const isCurrent = () => dayRequestRef.current.generation === generation && request >= dayRequestRef.current.applied;
     try {
       const res = await getPlannerSnapshot(currentDate);
+      if (!isCurrent()) return;
+      dayRequestRef.current.applied = request;
       if (res.success) {
         if (res.orders) setOrders(res.orders);
         if (res.pastUnfinishedOrders) setPastUnfinishedOrders(res.pastUnfinishedOrders);
@@ -316,16 +328,23 @@ export default function PlannerBoard({
         console.warn('getPlannerSnapshot:', res.error);
       }
     } catch (e) {
-      console.error(e);
+      if (isCurrent()) console.error(e);
     } finally {
-      setIsLoading(false);
+      if (isCurrent()) setIsLoading(false);
     }
   };
 
   useEffect(() => {
+    setDragOrderId(null);
+    setDragPos(null);
+    setDropTarget(null);
     fetchDayOrders();
     const interval = setInterval(fetchDayOrders, 6000); // Polling co 6s na tablecie
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      dragCleanupRef.current?.();
+      dayRequestRef.current.generation++;
+    };
   }, [currentDate]);
 
   // Auto-scroll to current hour when date is today
@@ -335,16 +354,12 @@ export default function PlannerBoard({
     if (!isToday) return;
     const scroller = timelineScrollRef.current;
     if (!scroller) return;
-    const currentSlot = getCurrentSlotString();
-    const targetElement = document.getElementById(`slot-row-${currentSlot}`);
-    if (!targetElement) return;
-
-    // Pozycjonujemy bieżący slot tak, aby domyślnie widoczny był zakres ~ -2h .. +2h.
-    const scrollerRect = scroller.getBoundingClientRect();
-    const elRect = targetElement.getBoundingClientRect();
-    const relativeTop = elRect.top - scrollerRect.top + scroller.scrollTop;
-    const offset = Math.max(0, relativeTop - 4 * SLOT_STEP - 12);
-    scroller.scrollTo({ top: offset, behavior: smooth ? 'smooth' : 'auto' });
+    const grid = timelineGridRef.current;
+    if (!grid) return;
+    const now = new Date();
+    const minutes = now.getHours() * 60 + now.getMinutes();
+    const offset = grid.offsetLeft + (minutes - axisStart) * PIXELS_PER_MINUTE - 2 * 60 * PIXELS_PER_MINUTE;
+    scroller.scrollTo({ left: Math.max(0, offset), behavior: smooth ? 'smooth' : 'auto' });
   };
 
   // Scroll to current hour on initial load
@@ -513,16 +528,25 @@ export default function PlannerBoard({
     window.removeEventListener('pointermove', handleDragMove);
     window.removeEventListener('pointerup', handleDragEnd);
     window.removeEventListener('pointercancel', handleDragEnd);
+    if (dragFrameRef.current !== null) cancelAnimationFrame(dragFrameRef.current);
+    dragFrameRef.current = null;
+    dragCleanupRef.current = null;
     clearLongPress();
   };
 
-  const handleCardPointerDown = (e: React.PointerEvent, ord: any) => {
+  const handleCardPointerDown = (e: React.PointerEvent, ord: any, startMinutes: number) => {
     // Native touch scrolling takes priority; tapping a card opens scheduling.
     if (e.pointerType !== 'mouse' || e.button !== 0 || !canEdit || ord.status === 'COMPLETED') return;
     if ((e.target as HTMLElement).closest('button')) return;
     e.currentTarget.setPointerCapture(e.pointerId);
 
-    dragRef.current = { order: ord, pointerId: e.pointerId, startX: e.clientX, startY: e.clientY, active: false };
+    const grabOffset = e.clientX - e.currentTarget.getBoundingClientRect().left;
+    dragRef.current = { order: ord, pointerId: e.pointerId, startX: e.clientX, startY: e.clientY, active: false, grabOffset, startMinutes, x: e.clientX, y: e.clientY };
+    dragCleanupRef.current = () => {
+      endDrag();
+      dragRef.current = null;
+      dropTargetRef.current = null;
+    };
     clearLongPress();
     longPressTimer.current = setTimeout(() => {
       const ref = dragRef.current;
@@ -533,6 +557,7 @@ export default function PlannerBoard({
       window.addEventListener('pointermove', handleDragMove);
       window.addEventListener('pointerup', handleDragEnd);
       window.addEventListener('pointercancel', handleDragEnd);
+      dragFrameRef.current = requestAnimationFrame(autoScrollDrag);
     }, 450);
   };
 
@@ -545,8 +570,7 @@ export default function PlannerBoard({
     const dx = e.clientX - ref.startX;
     const dy = e.clientY - ref.startY;
     if (Math.abs(dx) > 10 || Math.abs(dy) > 10) {
-      clearLongPress();
-      dragRef.current = null;
+      dragCleanupRef.current?.();
     }
   };
 
@@ -555,24 +579,34 @@ export default function PlannerBoard({
     if (!ref || ref.pointerId !== e.pointerId) return;
     clearLongPress();
     if (!ref.active) {
-      dragRef.current = null;
+      dragCleanupRef.current?.();
       setDragOrderId(null);
       setDragPos(null);
       setDropTarget(null);
     }
   };
 
-  const handleDragMove = (e: PointerEvent) => {
-    e.preventDefault();
-    setDragPos({ x: e.clientX, y: e.clientY });
-
-    const el = document.elementFromPoint(e.clientX, e.clientY);
-    const cell = el?.closest('[data-drop-cell]') as HTMLElement | null;
-    if (cell) {
-      const time = cell.getAttribute('data-drop-time');
-      const empId = cell.getAttribute('data-drop-emp');
-      if (time && empId) {
-        const target = { time, employeeId: empId };
+  const updateDragTarget = (x: number, y: number) => {
+    const grid = timelineGridRef.current;
+    const scroller = timelineScrollRef.current;
+    const drag = dragRef.current;
+    if (grid && scroller && drag) {
+      const rect = grid.getBoundingClientRect();
+      const viewport = scroller.getBoundingClientRect();
+      const underPointer = document.elementFromPoint(x, y);
+      if (x >= Math.max(rect.left, viewport.left + scroller.clientLeft) && x < Math.min(rect.right, viewport.left + scroller.clientLeft + scroller.clientWidth)
+          && y >= Math.max(rect.top, viewport.top + scroller.clientTop) && y < Math.min(rect.bottom, viewport.top + scroller.clientTop + scroller.clientHeight)
+          && underPointer && grid.contains(underPointer)) {
+        const rawMinutes = axisStartRef.current + (x - rect.left - drag.grabOffset) / PIXELS_PER_MINUTE;
+        const minutes = drag.startMinutes + Math.round((rawMinutes - drag.startMinutes) / 30) * 30;
+        if (minutes < 0 || minutes >= 1440) {
+          setDropTarget(null);
+          dropTargetRef.current = null;
+          return;
+        }
+        const normalized = ((minutes % 1440) + 1440) % 1440;
+        const time = `${Math.floor(normalized / 60).toString().padStart(2, '0')}:${(normalized % 60).toString().padStart(2, '0')}`;
+        const target = { time, employeeId: 'shared' };
         setDropTarget(target);
         dropTargetRef.current = target;
         return;
@@ -582,7 +616,37 @@ export default function PlannerBoard({
     dropTargetRef.current = null;
   };
 
+  const autoScrollDrag = () => {
+    const drag = dragRef.current;
+    const scroller = timelineScrollRef.current;
+    if (!drag?.active || !scroller) return;
+    const rect = scroller.getBoundingClientRect();
+    const left = rect.left + scroller.clientLeft;
+    const right = left + scroller.clientWidth;
+    const underPointer = document.elementFromPoint(drag.x, drag.y);
+    if (underPointer && timelineGridRef.current?.contains(underPointer) && drag.y >= rect.top + scroller.clientTop && drag.y < rect.top + scroller.clientTop + scroller.clientHeight && drag.x >= left && drag.x < right) {
+      const edge = 60;
+      const delta = drag.x < left + edge ? -Math.ceil((left + edge - drag.x) / 5)
+        : drag.x > right - edge ? Math.ceil((drag.x - (right - edge)) / 5) : 0;
+      if (delta) scroller.scrollLeft += delta;
+    }
+    updateDragTarget(drag.x, drag.y);
+    dragFrameRef.current = requestAnimationFrame(autoScrollDrag);
+  };
+
+  const handleDragMove = (e: PointerEvent) => {
+    const drag = dragRef.current;
+    if (!drag || e.pointerId !== drag.pointerId) return;
+    e.preventDefault();
+    drag.x = e.clientX;
+    drag.y = e.clientY;
+    setDragPos({ x: e.clientX, y: e.clientY });
+    updateDragTarget(e.clientX, e.clientY);
+  };
+
   const handleDragEnd = (e: PointerEvent) => {
+    if (e.pointerId !== dragRef.current?.pointerId) return;
+    if (e.type !== 'pointercancel') updateDragTarget(e.clientX, e.clientY);
     endDrag();
     const ref = dragRef.current;
     const target = dropTargetRef.current;
@@ -598,13 +662,12 @@ export default function PlannerBoard({
       const oldStart = order.scheduledStartTime ? new Date(order.scheduledStartTime) : null;
       const oldDate = oldStart ? format(oldStart, 'yyyy-MM-dd') : null;
       const oldTime = oldStart ? format(oldStart, 'HH:mm') : null;
-      const changed = oldDate !== currentDate || oldTime !== target.time || order.assignedEmployeeId !== target.employeeId;
+      const changed = oldDate !== currentDate || oldTime !== target.time;
       if (changed) {
         setDropConfirm({
           order,
           newDate: currentDate,
           newTime: target.time,
-          newEmployeeId: target.employeeId,
         });
       }
     }
@@ -617,7 +680,8 @@ export default function PlannerBoard({
     start.setHours(h, m, 0, 0);
     const res = await scheduleOrder(dropConfirm.order.id, {
       scheduledStartTime: start.toISOString(),
-      assignedEmployeeId: dropConfirm.newEmployeeId,
+      expectedUpdatedAt: new Date(dropConfirm.order.updatedAt).toISOString(),
+      isOverCapacity: dropConfirm.order.isOverCapacity,
     });
     if (!res.success) {
       showActionError(res.error || 'Nie udało się zmienić terminu.');
@@ -648,7 +712,7 @@ export default function PlannerBoard({
       const ref = cellPressRef.current;
       if (!ref || ref.pointerId !== e.pointerId) return;
       setQuickAddError('');
-      setQuickAddPrefill({ time: ref.time, employeeId: ref.employeeId });
+      setQuickAddPrefill({ time: ref.time, employeeId: '' });
       cellPressRef.current = null;
     }, 450);
   };
@@ -683,7 +747,8 @@ export default function PlannerBoard({
     const res = await scheduleOrder(ord.id, {
       scheduledStartTime: todayDate.toISOString(),
       durationMin: ord.durationMin || 30,
-      assignedEmployeeId: ord.assignedEmployeeId || activeEmpIds[0] || employees[0]?.id,
+      expectedUpdatedAt: new Date(ord.updatedAt).toISOString(),
+      isOverCapacity: ord.isOverCapacity,
     });
     if (!res.success) showActionError(res.error || 'Nie udało się przepisać zlecenia na dziś.');
 
@@ -694,29 +759,6 @@ export default function PlannerBoard({
   const activeEmployees = useMemo(() => {
     return employees.filter(e => activeEmpIds.includes(e.id));
   }, [employees, activeEmpIds]);
-
-  // Hours intervals based on configured working hours
-  const timeSlots = useMemo(() => {
-    const slots: string[] = [];
-    for (let h = workStartHour; h <= workEndHour; h++) {
-      slots.push(`${h.toString().padStart(2, '0')}:00`);
-      if (h < workEndHour) {
-        slots.push(`${h.toString().padStart(2, '0')}:30`);
-      }
-    }
-    return slots;
-  }, [workStartHour, workEndHour]);
-
-  // Unassigned / Unscheduled orders strictly on this viewed date (Priority/Express orders first)
-  const unassignedOrders = useMemo(() => {
-    return orders
-      .filter(isQueueOrder)
-      .sort((a, b) => {
-        if (a.isPriority && !b.isPriority) return -1;
-        if (!a.isPriority && b.isPriority) return 1;
-        return new Date(a.targetReadyTime).getTime() - new Date(b.targetReadyTime).getTime();
-      });
-  }, [orders]);
 
   // Overdue uncompleted orders on TODAY (earlier hours of today)
   const overdueOrdersToday = useMemo(() => {
@@ -735,122 +777,47 @@ export default function PlannerBoard({
     });
   }, [orders, isToday, currentDate]);
 
-  // Auta gotowe do wydania, których nie ma na widocznym grafiku (poza kolumnami pracowników).
-  const visibleBoardOrderIds = useMemo(() => {
-    const ids = new Set<string>();
-    orders.forEach(o => {
-      if (!o.scheduledStartTime || !o.assignedEmployeeId) return;
-      if (!activeEmpIds.includes(o.assignedEmployeeId)) return;
-      if (format(new Date(o.scheduledStartTime), 'yyyy-MM-dd') !== currentDate) return;
-      ids.add(o.id);
-    });
-    return ids;
-  }, [orders, activeEmpIds, currentDate]);
-
-  const pendingReleaseOrders = useMemo(
-    () => pendingReleases.filter(o => !visibleBoardOrderIds.has(o.id)),
-    [pendingReleases, visibleBoardOrderIds]
-  );
-
   // Calculate current hour capacity load
   const currentHourLoad = useMemo(() => {
     const activeRunning = orders.filter(o => o.status === 'IN_PROGRESS');
     return activeRunning.length;
   }, [orders]);
 
-  // Column width calculations based on active employee count (1-5+)
   // Filtering changes only the view, never the shift or order assignment.
-  const visibleEmployees = visibleEmployeeId === 'all' || !activeEmployees.some(e => e.id === visibleEmployeeId)
-    ? activeEmployees
-    : activeEmployees.filter(e => e.id === visibleEmployeeId);
-  const gridTemplate = `56px repeat(${visibleEmployees.length}, minmax(220px, 1fr))`;
-
-  // Timeline geometry: fixed slot height + gap so absolute card positioning aligns with slot cells
-  const columnHeight = timeSlots.length * SLOT_STEP - SLOT_GAP;
-
-  // Card layouts: for each employee, orders spanning their duration + overlap lanes (columns)
   const cardLayouts = useMemo(() => {
-    const result: Record<string, { order: any; startIdx: number; numSlots: number; lane: number; laneCount: number }[]> = {};
-
-    activeEmployees.forEach((emp) => {
+      const dayStart = new Date(`${currentDate}T00:00:00`).getTime();
       const dayOrders = orders
-        .filter(o => o.status !== 'CANCELLED' && o.assignedEmployeeId === emp.id && o.scheduledStartTime
-          && format(new Date(o.scheduledStartTime), 'yyyy-MM-dd') === currentDate)
+        .filter(o => o.status !== 'CANCELLED'
+          && (visibleEmployeeId === 'all' || !activeEmployees.some(e => e.id === visibleEmployeeId)
+            || !(o.assignedEmployees || []).length
+            || (o.assignedEmployees || []).some((assignment: any) => assignment.employeeId === visibleEmployeeId))
+          && format(new Date(o.scheduledStartTime || o.targetReadyTime), 'yyyy-MM-dd') === currentDate)
         .map(o => {
-          const start = new Date(o.scheduledStartTime).getTime();
-          return { o, start, end: start + (o.durationMin || 30) * 60000 };
+          const start = o.scheduledStartTime ? new Date(o.scheduledStartTime).getTime()
+            : new Date(o.targetReadyTime).getTime() - (o.durationMin || 30) * 60000;
+          const startDate = new Date(start);
+          const dayOffset = Math.round((new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate()).getTime() - dayStart) / 86400000);
+          const minutes = dayOffset * 1440 + startDate.getHours() * 60 + startDate.getMinutes();
+          return { o, start: minutes, end: minutes + (o.durationMin || 30) };
         })
         .sort((a, b) => a.start - b.start);
-
-      // Group into connected components of overlapping intervals
-      const comps: { start: number; end: number; items: typeof dayOrders }[] = [];
-      dayOrders.forEach(it => {
-        const overlapping = comps.filter(c => it.start < c.end && c.start < it.end);
-        if (overlapping.length === 0) {
-          comps.push({ start: it.start, end: it.end, items: [it] });
-        } else {
-          const main = overlapping[0];
-          main.items.push(it);
-          main.start = Math.min(main.start, it.start);
-          main.end = Math.max(main.end, it.end);
-          for (let i = 1; i < overlapping.length; i++) {
-            const c = overlapping[i];
-            main.items.push(...c.items);
-            main.start = Math.min(main.start, c.start);
-            main.end = Math.max(main.end, c.end);
-            comps.splice(comps.indexOf(c), 1);
-          }
-        }
+      const laneEnds: number[] = [];
+      return dayOrders.map(it => {
+        let lane = laneEnds.findIndex(end => end <= it.start);
+        if (lane < 0) lane = laneEnds.length;
+        laneEnds[lane] = it.end;
+        return { order: it.o, start: it.start, end: it.end, lane };
       });
+  }, [orders, activeEmployees, visibleEmployeeId, currentDate]);
 
-      // Assign lanes (columns) greedily within each component
-      const layouts: { order: any; startIdx: number; numSlots: number; lane: number; laneCount: number }[] = [];
-      comps.forEach(c => {
-        const items = [...c.items].sort((a, b) => a.start - b.start);
-        const laneEnds: number[] = [];
-        const laneFor: number[] = [];
-
-        // 1) Pass 1: assign a lane to every order (track each lane's current end time)
-        items.forEach(it => {
-          let lane = laneEnds.findIndex(e => e <= it.start);
-          if (lane === -1) {
-            lane = laneEnds.length;
-            laneEnds.push(it.end);
-          } else {
-            laneEnds[lane] = it.end;
-          }
-          laneFor.push(lane);
-        });
-
-        // 2) Pass 2: ALL orders in this component share the same laneCount,
-        //    so overlapping cards get the same width and sit side by side.
-        const laneCount = laneEnds.length;
-        items.forEach((it, i) => {
-          const startDate = new Date(it.start);
-          const startMinutes = startDate.getHours() * 60 + startDate.getMinutes();
-          const startIdx = Math.max(0, Math.min(Math.floor(startMinutes / 30) - workStartHour * 2, timeSlots.length - 1));
-          const numSlots = Math.max(1, Math.round((it.o.durationMin || 30) / 30));
-          layouts.push({ order: it.o, startIdx, numSlots, lane: laneFor[i], laneCount });
-        });
-      });
-
-      result[emp.id] = layouts;
-    });
-
-    return result;
-  }, [orders, activeEmployees, currentDate, timeSlots, workStartHour]);
-
-  // Which (emp, slotIdx) cells are covered by at least one card (for the "+" hint)
-  const coveredCells = useMemo(() => {
-    const set = new Set<string>();
-    Object.entries(cardLayouts).forEach(([empId, layouts]) => {
-      layouts.forEach(l => {
-        const endIdx = Math.min(l.startIdx + l.numSlots, timeSlots.length);
-        for (let i = l.startIdx; i < endIdx; i++) set.add(`${empId}|${i}`);
-      });
-    });
-    return set;
-  }, [cardLayouts, timeSlots.length]);
+  const axisStart = Math.floor(Math.min(workStartHour * 60, ...cardLayouts.map(l => l.start)) / 30) * 30;
+  axisStartRef.current = axisStart;
+  const axisEnd = Math.ceil(Math.max(workEndHour * 60 + 30, ...cardLayouts.map(l => l.end)) / 30) * 30;
+  const timeSlots = Array.from({ length: (axisEnd - axisStart) / 30 }, (_, i) => axisStart + i * 30);
+  const laneCount = Math.max(1, ...cardLayouts.map(l => l.lane + 1));
+  const visibleBoardOrderIds = new Set(cardLayouts.map(layout => layout.order.id));
+  const pendingReleaseOrders = Array.from(new Map([...pendingReleases, ...orders.filter(o => o.status === 'READY')]
+    .filter(o => !visibleBoardOrderIds.has(o.id)).map(o => [o.id, o])).values());
 
   return (
     <div className="planner-board min-w-0 flex-1 flex flex-col space-y-4">
@@ -916,7 +883,7 @@ export default function PlannerBoard({
                 setQuickAddError('');
                 setQuickAddPrefill({
                   time: getRoundedCurrentTime(30),
-                  employeeId: activeEmployees[0]?.id || employees[0]?.id || '',
+                  employeeId: '',
                 });
               }}
               className="px-3.5 py-2 sm:py-2.5 rounded-xl bg-sky-500 hover:bg-sky-400 text-white font-extrabold text-xs shadow-lg shadow-sky-500/20 transition-all flex items-center gap-1.5"
@@ -1136,7 +1103,7 @@ export default function PlannerBoard({
 
                   <button
                     onClick={() => {
-                      if (!pOrd.assignedEmployeeId || !pOrd.scheduledStartTime) {
+                      if (!pOrd.scheduledStartTime) {
                         setEditingOrder(pOrd);
                       } else {
                         setFinishConfirmId(pOrd.id);
@@ -1224,7 +1191,7 @@ export default function PlannerBoard({
                       </button>
                       <button
                         onClick={() => {
-                          if (!ord.assignedEmployeeId || !ord.scheduledStartTime) {
+                          if (!ord.scheduledStartTime) {
                             setEditingOrder(ord);
                           } else {
                             setFinishConfirmId(ord.id);
@@ -1248,77 +1215,6 @@ export default function PlannerBoard({
       )}
 
 
-
-      {/* Unscheduled / Waiting Queue Bar for viewed date (if any) */}
-      {unassignedOrders.length > 0 && (
-        <details className="planner-queue group bg-gradient-to-r from-slate-900 via-sky-950/40 to-slate-900 border border-sky-500/30 rounded-2xl p-2 shadow-lg">
-          <summary className="min-h-11 flex cursor-pointer list-none flex-wrap items-center justify-between gap-2 rounded-lg px-2">
-            <h3 className="text-xs font-black uppercase tracking-wider text-sky-300 flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 text-sky-400" />
-              Do przydzielenia ({unassignedOrders.length})
-            </h3>
-            <span className="flex items-center gap-1 text-xs text-sky-300">Pokaż / ukryj <ChevronDown className="h-4 w-4 group-open:rotate-180" /></span>
-          </summary>
-
-          <div className="flex items-center gap-2 overflow-x-auto pt-2 pb-1.5">
-            {unassignedOrders.map((ord) => {
-              const isOrdExpress = ord.isPriority;
-
-              return (
-                <div
-                  key={ord.id}
-                  onClick={() => setEditingOrder(ord)}
-                  className={`flex-shrink-0 p-2.5 rounded-xl cursor-pointer transition-all shadow hover:scale-102 flex items-center gap-2.5 ${
-                    isOrdExpress
-                      ? 'bg-gradient-to-r from-amber-950/90 via-slate-950 to-slate-900 border-2 border-amber-500 ring-2 ring-amber-400/60 shadow-lg shadow-amber-500/25 hover:border-amber-300 animate-pulse-slow'
-                      : 'bg-slate-950 border border-slate-700 hover:border-sky-400'
-                  }`}
-                >
-                  <div 
-                    className="w-1.5 h-9 rounded-full"
-                    style={{ backgroundColor: ord.department?.color || '#3b82f6' }}
-                  />
-                  <div>
-                    <div className="flex items-center gap-1.5">
-                      <span className={`font-mono font-black text-xs ${isOrdExpress ? 'text-amber-300' : 'text-white'}`}>
-                        {ord.licensePlate}
-                      </span>
-                      <span className="text-[9px] font-bold px-1 py-0.2 rounded bg-slate-800 text-slate-300">
-                        {ord.department?.code}
-                      </span>
-                      {isOrdExpress && (
-                        <span className="text-[8px] font-black px-1.5 py-0.5 rounded bg-amber-500 text-slate-950 uppercase flex items-center gap-0.5 shadow font-sans">
-                          <Zap className="w-2 h-2 fill-current" /> EKSPRES
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-[11px] text-slate-300 truncate max-w-[130px]">{ord.category?.name}</p>
-                    <div className="flex items-center gap-2 text-[10px]">
-                      <span className="text-amber-300 font-bold">
-                        Na: {format(new Date(ord.targetReadyTime), 'HH:mm')}
-                      </span>
-                      {isOrdExpress && ord.priorityAuthorizer && (
-                        <span className="text-amber-400/90 truncate max-w-[90px]" title={`Zatwierdził: ${ord.priorityAuthorizer}`}>
-                          ⚡ {ord.priorityAuthorizer}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  {canEdit && (
-                    <button className={`p-1.5 rounded-lg transition-colors ${
-                      isOrdExpress 
-                        ? 'bg-amber-500 text-slate-950 hover:bg-amber-400 font-bold' 
-                        : 'bg-sky-500/20 text-sky-400 hover:bg-sky-500 hover:text-white'
-                    }`}>
-                      <ArrowRight className="w-3.5 h-3.5" />
-                    </button>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </details>
-      )}
 
       {/* Auta gotowe do odbioru, których nie ma na grafiku (np. z poprzednich dni lub bez przypisania) */}
       {pendingReleaseOrders.length > 0 && (
@@ -1354,7 +1250,7 @@ export default function PlannerBoard({
                     {ord.category?.name} • na {format(new Date(ord.targetReadyTime), 'd MMM HH:mm', { locale: pl })}
                   </p>
                   <p className="text-[10px] text-slate-500 truncate">
-                    {ord.assignedEmployee?.name || 'bez przypisania'}
+                    {(ord.assignedEmployees || []).map((a: any) => a.employee?.name).filter(Boolean).join(', ') || 'bez przypisania'}
                   </p>
                 </div>
                 {canEdit && (
@@ -1370,6 +1266,22 @@ export default function PlannerBoard({
             ))}
           </div>
         </details>
+      )}
+
+      {cardLayouts.some(layout => layout.end - layout.start < 30) && (
+        <section aria-label="Krótkie zlecenia" className="rounded-2xl border border-slate-800 bg-slate-900 p-3">
+          <h2 className="mb-2 text-xs font-bold text-slate-300">Krótkie zlecenia: wybierz, aby otworzyć szczegóły</h2>
+          <div className="flex flex-wrap gap-2">
+            {cardLayouts.filter(layout => layout.end - layout.start < 30).map(layout => (
+              <button key={layout.order.id} type="button" onClick={() => setEditingOrder(layout.order)}
+                className="min-h-11 rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-left text-xs font-bold text-white hover:border-sky-400">
+                <span className="font-mono">{layout.order.licensePlate}</span>{' '}
+                <span className="text-sky-300">{`${String(Math.floor(((layout.start % 1440) + 1440) % 1440 / 60)).padStart(2, '0')}:${String(((layout.start % 60) + 60) % 60).padStart(2, '0')}`}</span>{' '}
+                <span className="text-slate-400">({layout.end - layout.start} min)</span>
+              </button>
+            ))}
+          </div>
+        </section>
       )}
 
       {/* Main Grid: Staff Columns & Timeline (Scrollable & Auto-centered) */}
@@ -1398,184 +1310,61 @@ export default function PlannerBoard({
             </span>
           )}
         </div>
-        {activeEmployees.length === 0 ? (
-          <div className="py-20 px-6 text-center flex flex-col items-center justify-center">
-            <div className="w-16 h-16 rounded-3xl bg-sky-500/10 border border-sky-500/20 flex items-center justify-center mb-4 text-sky-400 shadow-inner">
-              <Users className="w-8 h-8" />
-            </div>
-            <h3 className="text-xl font-extrabold text-white">Brak aktywnych pracowników na zmianie</h3>
-            <p className="text-xs sm:text-sm text-slate-400 mt-2 max-w-md mx-auto">
-              {canEdit
-                ? 'Żaden pracownik nie został jeszcze zarejestrowany na dzisiejszą zmianę. Kliknij poniższy przycisk, aby wybrać obecnych pracowników i rozpocząć pracę w planerze.'
-                : 'Obsada myjni nie rozpoczęła jeszcze zmiany na ten dzień. Gdy pracownicy myjni zameldują się w systemie, pojawi się tutaj pełny harmonogram.'}
-            </p>
-            {canEdit && (
-              <button
-                onClick={openShiftStartModal}
-                className="mt-6 px-6 py-3.5 rounded-2xl bg-sky-500 hover:bg-sky-400 text-white font-extrabold text-sm shadow-xl shadow-sky-500/25 transition-all flex items-center gap-2"
-              >
-                <UserPlus className="w-4 h-4" />
-                <span>Wybierz pracowników i rozpocznij zmianę</span>
-              </button>
-            )}
-          </div>
-        ) : (
-          <div className="w-full" style={{ minWidth: 56 + visibleEmployees.length * 232 }}>
-            
-            {/* Sticky Columns Header (Employees) */}
-            <div 
-              className="grid gap-2 sm:gap-3 mb-3 sticky top-0 z-30 bg-slate-900/95 backdrop-blur-md pb-2 border-b border-slate-800" 
-              style={{ gridTemplateColumns: gridTemplate }}
-            >
-              <div className="sticky left-0 z-40 flex items-center justify-center font-bold text-[11px] uppercase tracking-wider text-slate-400 bg-slate-950 rounded-xl border border-slate-800">
-                Czas
-              </div>
-
-              {visibleEmployees.map((emp) => {
-                // Only count active orders strictly belonging to this viewed day
-                const empOrders = orders.filter((o) => {
-                  if (o.assignedEmployeeId !== emp.id || o.status === 'COMPLETED' || o.status === 'CANCELLED') return false;
-                  if (!o.scheduledStartTime) return false;
-                  return format(new Date(o.scheduledStartTime), 'yyyy-MM-dd') === currentDate;
-                });
-
-                return (
-                  <div
-                    key={emp.id}
-                    className="bg-slate-950 border border-slate-800 p-2 sm:p-3 rounded-2xl flex items-center justify-between shadow"
-                  >
-                    <div className="flex items-center gap-2">
-                      <div
-                        className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl flex items-center justify-center font-bold text-xs text-white shadow flex-shrink-0"
-                        style={{ backgroundColor: emp.color }}
-                      >
-                        {emp.shortName.slice(0, 2).toUpperCase()}
-                      </div>
-                      <div className="truncate">
-                        <h4 className="font-extrabold text-xs sm:text-sm text-white truncate">{emp.name}</h4>
-                        <span className="text-[10px] text-slate-400 hidden sm:block">Stanowisko</span>
-                      </div>
-                    </div>
-
-                    <span className="text-[11px] font-mono font-bold px-1.5 py-0.5 rounded bg-slate-800 text-sky-400 border border-slate-700 flex-shrink-0">
-                      {empOrders.length}
-                    </span>
-                  </div>
-                );
+          <div style={{ width: (axisEnd - axisStart) * PIXELS_PER_MINUTE }}>
+            <div className="sticky top-0 z-30 flex bg-slate-900 border-b border-slate-700">
+              {timeSlots.map(minutes => {
+                const normalized = ((minutes % 1440) + 1440) % 1440;
+                return <div key={minutes} className="shrink-0 border-l border-slate-700 px-2 py-2 font-mono text-xs font-bold text-slate-300" style={{ width: 30 * PIXELS_PER_MINUTE }}>{`${Math.floor(normalized / 60).toString().padStart(2, '0')}:${(normalized % 60).toString().padStart(2, '0')}`}{minutes < 0 ? ' -1d' : minutes >= 1440 ? ' +1d' : ''}</div>;
               })}
-
             </div>
-
-            {/* Time Grid: fixed-height columns per employee, cards span their duration */}
-            <div className="grid gap-2 sm:gap-3" style={{ gridTemplateColumns: gridTemplate }}>
-              {/* Time labels column */}
-              <div className="sticky left-0 z-20 bg-slate-900 flex flex-col gap-2">
-                {timeSlots.map((slot) => {
-                  const currentSlot = getCurrentSlotString();
-                  const isCurrentSlot = isToday && slot === currentSlot;
-                  const nowMinutes = new Date().getHours() * 60 + new Date().getMinutes();
-                  const [slotH, slotM] = slot.split(':').map(Number);
-                  const isPastSlot = isToday && (slotH * 60 + slotM) < nowMinutes - 30;
-
-                  return (
-                    <div
-                      key={slot}
-                      id={`slot-row-${slot}`}
-                      className={`flex flex-col items-center justify-center font-mono font-bold text-xs rounded-xl border transition-colors ${
-                        isCurrentSlot
-                          ? 'bg-sky-500 text-white border-sky-400 shadow-lg shadow-sky-500/30'
-                          : 'bg-slate-950 text-slate-400 border-slate-800'
-                      } ${isPastSlot ? 'opacity-85' : ''}`}
-                      style={{ height: SLOT_HEIGHT }}
-                    >
-                      <span>{slot}</span>
-                      {isCurrentSlot && (
-                        <span className="text-[8px] uppercase tracking-tighter font-black bg-white/20 px-1 rounded mt-0.5">
-                          TERAZ
-                        </span>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-
-              {/* Employee columns */}
-              {visibleEmployees.map((emp) => (
-                <div key={emp.id} className="group relative" style={{ height: columnHeight }}>
-                  {/* Background slot cells (drop targets + long-press quick add) */}
-                  {timeSlots.map((slot, slotIdx) => {
-                    const currentSlot = getCurrentSlotString();
-                    const isCurrentSlot = isToday && slot === currentSlot;
-                    const nowMinutes = new Date().getHours() * 60 + new Date().getMinutes();
-                    const [slotH, slotM] = slot.split(':').map(Number);
-                    const isPastSlot = isToday && (slotH * 60 + slotM) < nowMinutes - 30;
-                    const isCovered = coveredCells.has(`${emp.id}|${slotIdx}`);
-
-                    return (
-                      <div
-                        key={slot}
-                        data-drop-cell
-                        data-drop-time={slot}
-                        data-drop-emp={emp.id}
-                        onPointerDown={(e) => handleCellPointerDown(e, slot, emp.id)}
-                        onPointerMove={handleCellPointerMove}
-                        onPointerUp={handleCellPointerUp}
-                        onPointerCancel={handleCellPointerUp}
-                        onDoubleClick={(e) => {
-                          if (!canEdit) return;
-                          if ((e.target as HTMLElement).closest('[data-order-card], button')) return;
-                          setQuickAddError('');
-                          setQuickAddPrefill({ time: slot, employeeId: emp.id });
-                        }}
-                        className={`absolute left-0 right-0 rounded-2xl flex items-center justify-center transition-all border ${
-                          dropTarget && dropTarget.time === slot && dropTarget.employeeId === emp.id
-                            ? 'bg-emerald-500/20 border-emerald-400 ring-2 ring-emerald-400/60'
-                            : isCurrentSlot
-                            ? 'bg-slate-950/80 border-sky-500/40'
-                            : 'bg-slate-950/40 border-slate-800/60 hover:bg-slate-950/80'
-                        } ${isPastSlot ? 'opacity-85' : ''}`}
-                        style={{ top: slotIdx * SLOT_STEP, height: SLOT_HEIGHT }}
-                      >
-                        {!isCovered && canEdit && (
-                          <span className="text-slate-700 group-hover:text-sky-400 transition-colors pointer-events-none">
-                            <Plus className="w-4 h-4 opacity-40 group-hover:opacity-100" />
-                          </span>
-                        )}
-                      </div>
-                    );
-                  })}
-
-                  {/* Order cards – absolutely positioned, spanning full service duration */}
-                  {(cardLayouts[emp.id] || []).map((layout) => {
+            <div ref={timelineGridRef} className="group relative" style={{ height: laneCount * LANE_HEIGHT }}>
+              {timeSlots.map((minutes, slotIdx) => {
+                const valid = minutes >= 0 && minutes < 1440;
+                const slot = `${Math.floor(minutes / 60).toString().padStart(2, '0')}:${(minutes % 60).toString().padStart(2, '0')}`;
+                return <div key={minutes}
+                  onPointerDown={valid ? e => handleCellPointerDown(e, slot, 'shared') : undefined}
+                  onPointerMove={handleCellPointerMove} onPointerUp={handleCellPointerUp} onPointerCancel={handleCellPointerUp}
+                  onDoubleClick={valid && canEdit ? () => { setQuickAddError(''); setQuickAddPrefill({ time: slot, employeeId: '' }); } : undefined}
+                  className={`absolute top-0 bottom-0 border-l border-slate-800 ${dropTarget?.time === slot && valid ? 'bg-emerald-500/20' : 'bg-slate-950/40'}`}
+                  style={{ left: slotIdx * 30 * PIXELS_PER_MINUTE, width: 30 * PIXELS_PER_MINUTE }} />;
+              })}
+                  {cardLayouts.map((layout) => {
                     const ord = layout.order;
                     const isReady = ord.status === 'READY';
                     const isInProgress = ord.status === 'IN_PROGRESS';
                     const isCompleted = ord.status === 'COMPLETED';
                     const latestArrival = getOrderLatestArrivalTime(ord, 30);
-                    const laneWidth = 100 / layout.laneCount;
-                    const cardTop = layout.startIdx * SLOT_STEP;
-                    const cardHeight = Math.max(SLOT_HEIGHT, layout.numSlots * SLOT_STEP - SLOT_GAP);
-
-                    // Compact layout for overlapping cards – full actions only when there's no collision
-                    const isCompact = layout.laneCount > 1;
-                    // Short cards (<= 2 slots) get a tight vertical layout so they fit their duration span
-                    const isTight = layout.numSlots <= 2;
-                    const isCondensed = isCompact || isTight;
+                    const isCompact = false;
+                    const isTight = false;
+                    const isCondensed = true;
 
                     // Check if this order starts earlier than current time (today) and is unfinished
-                    const cardSlot = timeSlots[Math.min(layout.startIdx, timeSlots.length - 1)];
-                    const [cH, cM] = cardSlot.split(':').map(Number);
                     const nowMinutes = new Date().getHours() * 60 + new Date().getMinutes();
-                    const isOverdue = isToday && (cH * 60 + cM) < nowMinutes - 30 && !isCompleted && !isReady;
+                    const isOverdue = isToday && layout.start < nowMinutes - 30 && !isCompleted && !isReady;
+                    const employeeButton = canEdit && !isCompleted && (
+                      <button
+                        type="button"
+                        aria-label={`Zmień wykonawców: ${ord.licensePlate}`}
+                        className="rounded-lg bg-slate-800 px-2 py-1 text-xs font-bold text-sky-300"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const ids = (ord.assignedEmployees || []).map((a: any) => a.employeeId);
+                          setEmployeeSelection(ids.length ? ids : ord.assignedEmployeeId ? [ord.assignedEmployeeId] : []);
+                          setEmployeeError('');
+                          setEmployeeOrder(ord);
+                        }}
+                      >Wykonawcy</button>
+                    );
 
                     return (
                       <div
                         key={ord.id}
                         data-order-card
-                        data-drop-cell
-                        data-drop-time={cardSlot}
-                        data-drop-emp={emp.id}
-                        onPointerDown={(e) => handleCardPointerDown(e, ord)}
+                        role="button"
+                        tabIndex={0}
+                        aria-label={`Szczegóły i termin: ${ord.licensePlate}`}
+                        onKeyDown={e => { if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); setEditingOrder(ord); } }}
+                        onPointerDown={(e) => handleCardPointerDown(e, ord, layout.start)}
                         onPointerMove={handleCardPointerMove}
                         onPointerUp={handleCardPointerUp}
                         onPointerCancel={handleCardPointerUp}
@@ -1585,13 +1374,12 @@ export default function PlannerBoard({
                         style={{
                           touchAction: 'auto',
                           position: 'absolute',
-                          top: cardTop,
-                          height: cardHeight,
+                          top: layout.lane * LANE_HEIGHT,
+                          height: LANE_HEIGHT - 8,
                           minHeight: 0,
-                          overflowY: 'auto',
-                          overflowX: 'hidden',
-                          left: `calc(${layout.lane * laneWidth}% + ${layout.lane > 0 ? SLOT_GAP / 2 : 0}px)`,
-                          width: `calc(${laneWidth}% - ${SLOT_GAP}px)`,
+                          overflow: 'hidden',
+                          left: (layout.start - axisStart) * PIXELS_PER_MINUTE,
+                          width: (layout.end - layout.start) * PIXELS_PER_MINUTE,
                           zIndex: dragOrderId === ord.id ? 30 : (isCompact ? 20 : 10),
                         }}
                         className={`rounded-xl border transition-all relative shadow select-none ${
@@ -1637,10 +1425,14 @@ export default function PlannerBoard({
                         } ${isTight ? 'p-1' : isCompact ? 'p-1.5' : ''}`}
                       >
                         {isCondensed && (
-                          <div className="planner-touch-card p-1.5 space-y-1">
+                          <div className="p-1.5 space-y-1">
                             <div className="truncate font-mono text-sm font-black" title={ord.licensePlate}>{ord.licensePlate}</div>
+                            <div className="truncate text-xs font-bold text-slate-200">{ord.status === 'PLANNED' ? 'Oczekuje' : ord.status === 'IN_PROGRESS' ? 'Mycie' : ord.status === 'READY' ? 'Gotowe' : 'Wydane'}</div>
+                            {ord.isPriority && <div className="truncate text-xs font-bold text-amber-300">Ekspres</div>}
                             <div className="truncate text-xs text-slate-300">{ord.category?.name}</div>
-                            <div className="flex gap-1">
+                            <div className="truncate text-xs text-sky-300" title={(ord.assignedEmployees || []).map((a: any) => a.employee?.name).filter(Boolean).join(', ')}>{(ord.assignedEmployees || []).map((a: any) => a.employee?.shortName || a.employee?.name).filter(Boolean).join(', ') || 'Bez wykonawców'}</div>
+                            {!ord.scheduledStartTime && <div className="truncate text-xs font-bold text-amber-300">Godzina orientacyjna</div>}
+                            <div className="flex flex-col gap-1">
                               {canEdit && ['PLANNED', 'IN_PROGRESS', 'READY'].includes(ord.status) && (
                                 <button
                                   type="button"
@@ -1650,7 +1442,7 @@ export default function PlannerBoard({
                                     if (ord.status === 'IN_PROGRESS') setFinishConfirmId(ord.id);
                                     if (ord.status === 'READY') handleCompleteOrder(ord.id);
                                   }}
-                                  className="min-w-0 flex-1 rounded-lg bg-sky-500 px-1 text-xs font-bold text-white"
+                                  className="min-w-0 min-h-11 rounded-lg bg-sky-500 px-1 text-xs font-bold text-white"
                                 >
                                   {ord.status === 'PLANNED' ? 'Start' : ord.status === 'IN_PROGRESS' ? 'Gotowe' : 'Wydane'}
                                 </button>
@@ -1659,14 +1451,17 @@ export default function PlannerBoard({
                                 type="button"
                                 aria-label={`Szczegóły i termin: ${ord.licensePlate}`}
                                 onClick={(e) => { e.stopPropagation(); setEditingOrder(ord); }}
-                                className="shrink-0 flex items-center justify-center rounded-lg bg-slate-800 text-sky-300"
+                                 className="min-h-11 shrink-0 flex items-center justify-center gap-1 rounded-lg bg-slate-800 text-sky-300"
                               >
-                                <Eye className="h-5 w-5" />
+                                <Eye className="h-4 w-4" /><span className="text-xs">Szczegóły</span>
                               </button>
                             </div>
                           </div>
                         )}
-                        <div className={isCondensed ? 'planner-card-details' : undefined}>
+                        <div hidden>
+                        <p className="mb-1 truncate text-xs font-bold text-sky-300" title={(ord.assignedEmployees || []).map((a: any) => a.employee?.name).filter(Boolean).join(', ')}>{(ord.assignedEmployees || []).map((a: any) => a.employee?.shortName || a.employee?.name).filter(Boolean).join(', ') || 'Bez wykonawców'}</p>
+                        {!ord.scheduledStartTime && <p className="text-xs font-bold text-amber-300">Godzina orientacyjna</p>}
+                        {employeeButton}
                         {isTight ? (
                           <>
                             <div className="flex items-center gap-1">
@@ -2030,12 +1825,8 @@ export default function PlannerBoard({
                       </div>
                     );
                   })}
-                </div>
-              ))}
             </div>
-
           </div>
-        )}
 
       </div>
 
@@ -2065,8 +1856,7 @@ export default function PlannerBoard({
               </p>
               {dropTarget && (
                 <p className="text-[10px] font-bold text-emerald-400 mt-1">
-                  {format(new Date(`${currentDate}T${dropTarget.time}`), 'HH:mm', { locale: pl })} →
-                  {employees.find(e => e.id === dropTarget.employeeId)?.name}
+                  {format(new Date(`${currentDate}T${dropTarget.time}`), 'HH:mm', { locale: pl })}
                 </p>
               )}
             </div>
@@ -2306,12 +2096,7 @@ export default function PlannerBoard({
                 <span className="text-slate-400">Nowa godzina</span>
                 <span className="font-bold text-sky-300 font-mono">{dropConfirm.newTime}</span>
               </div>
-              <div className="flex items-center justify-between text-xs">
-                <span className="text-slate-400">Pracownik</span>
-                <span className="font-bold text-white">
-                  {employees.find(e => e.id === dropConfirm.newEmployeeId)?.name || '—'}
-                </span>
-              </div>
+              <p className="text-xs text-slate-400">Przypisani wykonawcy pozostaną bez zmian.</p>
             </div>
 
             <div className="flex items-center gap-3">
@@ -2335,6 +2120,48 @@ export default function PlannerBoard({
       )}
 
       {/* Edit / Schedule Order Modal */}
+      {employeeOrder && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 p-4">
+          <div role="dialog" aria-modal="true" aria-labelledby="employee-dialog-title" className="w-full max-w-md rounded-2xl border border-slate-700 bg-slate-900 p-4 shadow-2xl">
+            <h2 id="employee-dialog-title" className="text-lg font-bold text-white">Wykonawcy: {employeeOrder.licensePlate}</h2>
+            <fieldset disabled={employeePending} className="mt-3 grid max-h-[50dvh] grid-cols-2 gap-2 overflow-auto">
+              <legend className="mb-2 text-xs text-slate-300">Wybierz jedną lub więcej osób, albo pozostaw bez wykonawców.</legend>
+              {[...employees, ...(employeeOrder.assignedEmployees?.length ? employeeOrder.assignedEmployees.map((a: any) => a.employee) : [employeeOrder.assignedEmployee]).filter((e: any) => e && !employees.some(active => active.id === e.id))].map(e => (
+                <label key={e.id} className="flex min-h-11 items-center gap-2 rounded-xl border border-slate-700 bg-slate-950 p-2 text-xs font-bold text-white">
+                  <input type="checkbox" checked={employeeSelection.includes(e.id)} onChange={event => setEmployeeSelection(ids => event.target.checked ? [...ids, e.id] : ids.filter(id => id !== e.id))} />
+                  {e.name}{!e.isActive ? ' (nieaktywny)' : !activeEmpIds.includes(e.id) && ' (poza zmianą)'}
+                </label>
+              ))}
+            </fieldset>
+            {employeeError && <p role="alert" className="mt-3 text-sm font-bold text-rose-300">{employeeError}</p>}
+            <div className="mt-4 flex gap-2">
+              <button type="button" disabled={employeePending} onClick={() => setEmployeeOrder(null)} className="flex-1 rounded-xl bg-slate-800 p-3 text-sm font-bold text-white">Anuluj</button>
+              <button type="button" disabled={employeePending} onClick={async () => {
+                if (employeePending) return;
+                setEmployeePending(true);
+                setEmployeeError('');
+                try {
+                  const res = await setOrderEmployees(employeeOrder.id, {
+                    assignedEmployeeIds: employeeSelection,
+                    expectedUpdatedAt: new Date(employeeOrder.updatedAt).toISOString(),
+                  });
+                  if (!res.success) {
+                    setEmployeeError(res.error || 'Nie udało się zapisać wykonawców.');
+                    return;
+                  }
+                  setEmployeeOrder(null);
+                  await fetchDayOrders();
+                } catch {
+                  setEmployeeError('Błąd połączenia. Spróbuj ponownie.');
+                } finally {
+                  setEmployeePending(false);
+                }
+              }} className="flex-1 rounded-xl bg-sky-500 p-3 text-sm font-bold text-white disabled:opacity-50">{employeePending ? 'Zapisywanie...' : 'Zapisz'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {editingOrder && (
         <div className="planner-dialog fixed inset-0 z-[100] bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4">
           <div className="bg-slate-900 border border-slate-700 rounded-3xl p-4 sm:p-5 w-full max-w-md shadow-2xl animate-in fade-in zoom-in duration-150 max-h-[90vh] overflow-y-auto">
@@ -2360,6 +2187,29 @@ export default function PlannerBoard({
                 <X className="w-5 h-5" />
               </button>
             </div>
+
+            {canEdit && (
+              <div className="mb-3 flex flex-wrap gap-2">
+                {['PLANNED', 'IN_PROGRESS', 'READY'].includes(editingOrder.status) && (
+                  <button type="button" className="min-h-11 rounded-lg bg-sky-500 px-3 text-xs font-bold text-white" onClick={() => {
+                    const order = editingOrder;
+                    setEditingOrder(null);
+                    if (order.status === 'PLANNED') handleStartOrder(order.id);
+                    if (order.status === 'IN_PROGRESS') setFinishConfirmId(order.id);
+                    if (order.status === 'READY') handleCompleteOrder(order.id);
+                  }}>{editingOrder.status === 'PLANNED' ? 'Rozpocznij' : editingOrder.status === 'IN_PROGRESS' ? 'Gotowe' : 'Wydane'}</button>
+                )}
+                {editingOrder.status !== 'COMPLETED' && <button type="button" className="min-h-11 rounded-lg bg-slate-800 px-3 text-xs font-bold text-sky-300" onClick={() => {
+                  const ids = (editingOrder.assignedEmployees || []).map((a: any) => a.employeeId);
+                  setEmployeeSelection(ids.length ? ids : editingOrder.assignedEmployeeId ? [editingOrder.assignedEmployeeId] : []);
+                  setEmployeeError('');
+                  setEmployeeOrder(editingOrder);
+                  setEditingOrder(null);
+                }}>Wykonawcy</button>}
+                <button type="button" className="min-h-11 rounded-lg bg-slate-800 px-3 text-xs font-bold text-sky-300" onClick={() => { openNoteModal(editingOrder); setEditingOrder(null); }}>Notatka</button>
+                <button type="button" className="min-h-11 rounded-lg bg-slate-800 px-3 text-xs font-bold text-rose-300" onClick={() => { setDeleteConfirmId(editingOrder.id); setEditingOrder(null); }}>Usuń</button>
+              </div>
+            )}
 
             {/* Express Priority Banner in Modal - Ultra compact */}
             {editingOrder.releaseLogs?.length > 0 && (
@@ -2472,9 +2322,9 @@ export default function PlannerBoard({
                       </span>
                     </div>
                     <div>
-                      <span className="text-slate-400 block text-[9px] uppercase font-bold">Pracownik:</span>
+                      <span className="text-slate-400 block text-[9px] uppercase font-bold">Wykonawcy:</span>
                       <span className="font-bold text-white text-xs">
-                        {employees.find(e => e.id === editingOrder.assignedEmployeeId)?.name || 'Nieprzypisany'}
+                        {(editingOrder.assignedEmployees || []).map((a: any) => a.employee?.name).filter(Boolean).join(', ') || 'Nieprzypisani'}
                       </span>
                     </div>
                     <div>
@@ -2580,21 +2430,17 @@ export default function PlannerBoard({
                   </div>
                 </div>
 
-                {/* Employee Selection (Restricted to active shift staff) */}
-                <div>
-                  <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1">
-                    2. Przypisany Pracownik Myjni
-                  </label>
-                  <select
-                    value={modalEmployeeId}
-                    onChange={(e) => setModalEmployeeId(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-white font-bold text-xs focus:outline-none focus:border-sky-500"
-                  >
-                    {(activeEmployees.length > 0 ? activeEmployees : employees).map(e => (
-                      <option key={e.id} value={e.id}>{e.name} ({e.shortName})</option>
+                <fieldset>
+                  <legend className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1">2. Wykonawcy mycia</legend>
+                  <div className="grid grid-cols-2 gap-2">
+                    {[...employees, ...(editingOrder.assignedEmployees || []).map((a: any) => a.employee).filter((e: any) => e && !employees.some(active => active.id === e.id))].map(e => (
+                      <label key={e.id} className="flex min-h-11 items-center gap-2 rounded-xl border border-slate-700 bg-slate-950 p-2 text-xs font-bold text-white">
+                        <input type="checkbox" checked={modalEmployeeIds.includes(e.id)} onChange={event => setModalEmployeeIds(ids => event.target.checked ? [...ids, e.id] : ids.filter(id => id !== e.id))} />
+                        {e.name}{!e.isActive ? ' (nieaktywny)' : !activeEmpIds.includes(e.id) && ' (poza zmianą)'}
+                      </label>
                     ))}
-                  </select>
-                </div>
+                  </div>
+                </fieldset>
 
                 {/* Time Selection */}
                 <div className="grid grid-cols-2 gap-2.5">
@@ -2758,7 +2604,8 @@ export default function PlannerBoard({
                         const res = await scheduleOrder(editingOrder.id, {
                           scheduledStartTime: startDate.toISOString(),
                           durationMin: duration,
-                          assignedEmployeeId: modalEmployeeId || null,
+                          assignedEmployeeIds: modalEmployeeIds,
+                          expectedUpdatedAt: new Date(editingOrder.updatedAt).toISOString(),
                           isOverCapacity: modalOverCapacity,
                         });
                         if (!res.success) {
@@ -2845,7 +2692,7 @@ export default function PlannerBoard({
       {/* Quick Add Order Modal (Manual Override from Wash Bay) */}
       {quickAddPrefill && (
         <div className="planner-dialog fixed inset-0 z-[100] bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-700 rounded-3xl p-6 w-full max-w-lg shadow-2xl animate-in fade-in zoom-in duration-150">
+          <div className="bg-slate-900 border border-slate-700 rounded-3xl p-6 w-full max-w-lg max-h-[90dvh] overflow-y-auto shadow-2xl animate-in fade-in zoom-in duration-150">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-extrabold text-white flex items-center gap-2">
                 <Plus className="w-5 h-5 text-sky-400" />
@@ -2875,7 +2722,7 @@ export default function PlannerBoard({
                 const model = (form.elements.namedItem('qa-model') as HTMLInputElement).value;
                 const deptId = (form.elements.namedItem('qa-dept') as HTMLSelectElement).value;
                 const catId = (form.elements.namedItem('qa-cat') as HTMLSelectElement).value;
-                const empId = (form.elements.namedItem('qa-emp') as HTMLSelectElement).value;
+                const employeeIds = new FormData(form).getAll('qa-emp').map(String);
                 const timeStr = (form.elements.namedItem('qa-time') as HTMLInputElement).value;
 
                 if (!plate.trim()) {
@@ -2915,7 +2762,7 @@ export default function PlannerBoard({
                     categoryId: catId,
                     targetReadyTime: targetDate.toISOString(),
                     scheduledStartTime: startDate.toISOString(),
-                    assignedEmployeeId: empId,
+                    assignedEmployeeIds: employeeIds,
                     enteredByWash: true,
                   });
                   if (!res.success) {
@@ -2987,21 +2834,17 @@ export default function PlannerBoard({
               </div>
 
               <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">
-                    Pracownik Myjni (ze zmiany)
-                  </label>
-                  <select
-                    name="qa-emp"
-                    key={`emp-${quickAddPrefill.employeeId}`}
-                    defaultValue={quickAddPrefill.employeeId || activeEmployees[0]?.id || employees[0]?.id}
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-white text-xs font-bold"
-                  >
-                    {(activeEmployees.length > 0 ? activeEmployees : employees).map(e => (
-                      <option key={e.id} value={e.id}>{e.name} ({e.shortName})</option>
+                <fieldset>
+                  <legend className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">Wykonawcy mycia</legend>
+                  <div className="max-h-32 overflow-y-auto space-y-1">
+                    {employees.map(e => (
+                      <label key={e.id} className="flex min-h-9 items-center gap-2 text-xs font-bold text-white">
+                        <input type="checkbox" name="qa-emp" value={e.id} defaultChecked={e.id === quickAddPrefill.employeeId} />
+                        {e.name}{!activeEmpIds.includes(e.id) && ' (poza zmianą)'}
+                      </label>
                     ))}
-                  </select>
-                </div>
+                  </div>
+                </fieldset>
 
                 <div>
                   <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">
@@ -3067,8 +2910,8 @@ export default function PlannerBoard({
               <h2 className="text-xl sm:text-2xl font-black text-white">
                 Rozpoczęcie zmiany w planerze
               </h2>
-              <p className="text-xs sm:text-sm text-slate-400 mt-1">
-                Kto stawił się dzisiaj do pracy na myjni? Zaznacz obecnych pracowników, aby uruchomić kolumny i planowanie:
+                <p className="text-xs sm:text-sm text-slate-400 mt-1">
+                Kto stawił się dzisiaj do pracy na myjni? Zaznacz obecnych pracowników:
               </p>
             </div>
 

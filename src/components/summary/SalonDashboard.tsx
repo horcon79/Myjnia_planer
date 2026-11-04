@@ -271,7 +271,7 @@ export default function SalonDashboard({
                   )}
 
                   <div className="flex items-center justify-between text-[11px] text-slate-400 pt-2 border-t border-emerald-500/20">
-                    <span>Umył: <strong className="text-white">{ord.assignedEmployee?.name || 'Myjnia'}</strong></span>
+                    <span>Przypisani: <strong className="text-white">{ord.assignedEmployees.map((assignment: any) => assignment.employee.name).join(', ') || 'Brak'}</strong></span>
                     <span className="font-mono text-emerald-400 font-bold">
                       {ord.completedAt ? format(new Date(ord.completedAt), 'HH:mm') : 'Przed chwilą'}
                     </span>
@@ -375,7 +375,7 @@ export default function SalonDashboard({
                   )}
 
                   <div className="flex items-center justify-between text-[11px] text-slate-400 pt-2 border-t border-amber-500/20">
-                    <span>Myje: <strong className="text-white">{ord.assignedEmployee?.name || 'Pracownik'}</strong></span>
+                    <span>Przypisani: <strong className="text-white">{ord.assignedEmployees.map((assignment: any) => assignment.employee.name).join(', ') || 'Brak'}</strong></span>
                     <span className="font-mono text-amber-300 font-bold">
                       Cel: {format(new Date(ord.targetReadyTime), 'HH:mm')}
                     </span>

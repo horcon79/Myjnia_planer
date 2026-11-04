@@ -96,3 +96,15 @@ test('obłożenie uwzględnia wagę auta dostawczego i pomija zakończone oraz a
   assert.equal(usage.usedCapacity, 2.5);
   assert.equal(usage.activeOrdersCount, 2);
 });
+
+test('obłożenie jest szczytem równoczesności, liczy jedno auto raz i rozróżnia stykające się okna', () => {
+  const start = Date.parse('2026-10-28T23:00:00Z');
+  const order = { id: 'a', scheduledStartTime: new Date(start), durationMin: 30, carType: 'DELIVERY' };
+  const usage = computeSlotUsage([
+    order, order,
+    { id: 'b', scheduledStartTime: new Date(start + 30 * 60000), durationMin: 90 },
+  ], start, start + 120 * 60000);
+  assert.equal(usage.usedCapacity, 1.5);
+  assert.equal(usage.activeOrdersCount, 2);
+  assert.equal(getOrderServiceWindow({ targetReadyTime: new Date(start), durationMin: 0 })?.startMs, start - 30 * 60000);
+});

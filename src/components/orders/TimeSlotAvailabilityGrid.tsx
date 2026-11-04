@@ -16,6 +16,7 @@ export interface TimeSlotAvailabilityGridProps {
   workEndHour?: number; // e.g. 18
   maxSimultaneousCars?: number; // e.g. 3
   deliveryCarWeight?: number; // e.g. 1.5
+  carType?: string;
   onSwitchToTomorrow?: () => void;
   onSlotStatusChange?: (status: {
     isOverbooked: boolean;
@@ -33,6 +34,7 @@ interface SlotInfo {
   availableSlots: number; // e.g. 3, 2, 1, 0
   usedCapacity: number;
   totalCapacity: number;
+  hasCapacity: boolean;
   isPastOrTooEarly: boolean;
   isClosed: boolean;
   isSelected: boolean;
@@ -55,6 +57,7 @@ export default function TimeSlotAvailabilityGrid({
   workEndHour = 18,
   maxSimultaneousCars = 3,
   deliveryCarWeight = 1.5,
+  carType,
   onSwitchToTomorrow,
   onSlotStatusChange,
 }: TimeSlotAvailabilityGridProps) {
@@ -120,6 +123,8 @@ export default function TimeSlotAvailabilityGrid({
         }));
 
         const availableSlots = Math.max(0, Math.round((maxSimultaneousCars - usedCapacity) * 10) / 10);
+        const candidateWeight = carType === 'DELIVERY' ? deliveryCarWeight : 1;
+        const hasCapacity = usedCapacity + candidateWeight <= maxSimultaneousCars + 1e-9;
         const isSelected = selectedHour === timeStr;
 
         result.push({
@@ -129,6 +134,7 @@ export default function TimeSlotAvailabilityGrid({
           availableSlots,
           usedCapacity,
           totalCapacity: maxSimultaneousCars,
+          hasCapacity,
           isPastOrTooEarly,
           isClosed,
           isSelected,
@@ -149,6 +155,7 @@ export default function TimeSlotAvailabilityGrid({
     serviceDurationMin,
     orders,
     deliveryCarWeight,
+    carType,
     maxSimultaneousCars,
     selectedHour,
   ]);
@@ -162,11 +169,11 @@ export default function TimeSlotAvailabilityGrid({
     if (!onSlotStatusChange) return;
     const current = allSlots.find((s) => s.timeStr === selectedHour);
     if (current) {
-      const isOverbooked = !current.isPastOrTooEarly && current.availableSlots <= 0;
+      const isOverbooked = !current.isPastOrTooEarly && !current.hasCapacity;
       const nextFree = futureSlots.find(
-        (s) => !s.isClosed && s.availableSlots > 0 && s.timeStr > selectedHour
+        (s) => !s.isClosed && s.hasCapacity && s.timeStr > selectedHour
       );
-      const anyFree = futureSlots.find((s) => !s.isClosed && s.availableSlots > 0);
+      const anyFree = futureSlots.find((s) => !s.isClosed && s.hasCapacity);
       onSlotStatusChange({
         isOverbooked,
         availableSlots: current.availableSlots,
@@ -206,7 +213,7 @@ export default function TimeSlotAvailabilityGrid({
   const visibleSlots = showPastSlots ? allSlots : futureSlots;
 
   // Statystyka dostępnych slotów
-  const availableSlotsCount = futureSlots.filter((s) => !s.isClosed && s.availableSlots > 0).length;
+  const availableSlotsCount = futureSlots.filter((s) => !s.isClosed && s.hasCapacity).length;
 
   return (
     <div className="rounded-xl bg-slate-950/90 border border-slate-800 p-2.5 space-y-2 shadow-inner">
@@ -235,6 +242,7 @@ export default function TimeSlotAvailabilityGrid({
       <p className="text-[9px] text-slate-400 leading-tight">
         Godzina = termin gotowości. <strong className="text-slate-300">1/2</strong> oznacza liczbę wolnych stanowisk
         w całym oknie wybranej usługi ({serviceDurationMin} min), a nie rezerwację po terminie gotowości.
+        Dostępność uwzględnia wagę wybranego pojazdu ({carType === 'DELIVERY' ? deliveryCarWeight : 1}).
       </p>
 
       {/* Komunikat o braku okien na dziś (np. pod koniec dnia) */}
@@ -262,7 +270,7 @@ export default function TimeSlotAvailabilityGrid({
         <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-1 pt-0.5">
           {visibleSlots.map((slot) => {
             const isDisabled = slot.isPastOrTooEarly || slot.isClosed;
-            const isFullyBooked = !isDisabled && slot.availableSlots <= 0;
+            const isFullyBooked = !isDisabled && !slot.hasCapacity;
 
             let cardBg = 'bg-slate-900/90 border-slate-800 text-slate-300 hover:border-slate-700 hover:bg-slate-850';
             let badgeText = `${slot.availableSlots}/${slot.totalCapacity}`;
@@ -274,7 +282,7 @@ export default function TimeSlotAvailabilityGrid({
               badgeColor = 'text-slate-500 bg-slate-800/40 border-slate-800';
             } else if (isFullyBooked) {
               cardBg = 'bg-rose-950/20 border-rose-900/40 text-rose-300 hover:border-rose-700/60';
-              badgeText = 'Pełne';
+              badgeText = 'Brak miejsca';
               badgeColor = 'text-rose-400 bg-rose-500/15 border-rose-500/30';
             } else if (slot.availableSlots <= 1) {
               cardBg = 'bg-amber-950/20 border-amber-900/40 text-amber-200 hover:border-amber-700/60';
